@@ -417,32 +417,10 @@ def calibration_status():
     return asdict(status)
 
 
-@app.post("/calibration-input")
-def send_calibration_input(data: dict):
-    """Send input to the calibration process"""
-    input_text = data.get("input", "")
-    logger.info(f"🔵 API: Received input request: {repr(input_text)}")
-    result = calibration_manager.send_input(input_text)
-    logger.info(f"🔵 API: Returning result: {result}")
-    return result
-
-
-@app.get("/calibration-debug")
-def calibration_debug():
-    """Debug endpoint to check calibration state"""
-    try:
-        queue_size = calibration_manager._input_queue.qsize()
-        event_set = calibration_manager._input_ready.is_set()
-        calibration_active = calibration_manager.status.calibration_active
-
-        return {
-            "queue_size": queue_size,
-            "event_set": event_set,
-            "calibration_active": calibration_active,
-            "status": calibration_manager.status.status,
-        }
-    except Exception as e:
-        return {"error": str(e)}
+@app.post("/complete-calibration-step")
+def complete_calibration_step():
+    """Complete the current calibration step"""
+    return calibration_manager.complete_step()
 
 
 @app.get("/calibration-configs/{device_type}")
