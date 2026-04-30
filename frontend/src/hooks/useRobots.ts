@@ -42,7 +42,8 @@ export const useRobots = () => {
   const [visibleNames, setVisibleNames] = useState<string[]>(() => readVisible());
   const [isLoading, setIsLoading] = useState(false);
 
-  // Re-fetch records whenever Landing is navigated to (location.key changes on every nav)
+  // Re-fetch records when location changes (RobotConfigManager mounts only on Landing,
+  // so this fires on initial mount and on back-navigation to Landing)
   useEffect(() => {
     let cancelled = false;
     const fetchAll = async () => {

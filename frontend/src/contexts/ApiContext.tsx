@@ -1,4 +1,4 @@
-import React, { createContext, useContext, ReactNode, useState } from "react";
+import React, { createContext, useContext, ReactNode, useState, useCallback } from "react";
 
 interface ApiContextType {
   baseUrl: string;
@@ -37,10 +37,7 @@ export const ApiProvider: React.FC<{ children: ReactNode }> = ({
   const [baseUrl] = useState<string>(resolveInitialBaseUrl);
   const wsBaseUrl = httpToWs(baseUrl);
 
-  const fetchWithHeaders = async (
-    url: string,
-    options: RequestInit = {}
-  ): Promise<Response> => {
+  const fetchWithHeaders = useCallback(async (url: string, options: RequestInit = {}): Promise<Response> => {
     return fetch(url, {
       ...options,
       headers: {
@@ -48,7 +45,7 @@ export const ApiProvider: React.FC<{ children: ReactNode }> = ({
         ...options.headers,
       },
     });
-  };
+  }, []);
 
   return (
     <ApiContext.Provider value={{ baseUrl, wsBaseUrl, fetchWithHeaders }}>
