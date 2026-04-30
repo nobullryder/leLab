@@ -670,6 +670,8 @@ def get_robots():
 @app.get("/robots/{name}")
 def get_robot(name: str):
     """Get a single robot record by name."""
+    if not is_valid_robot_name(name):
+        return JSONResponse(status_code=400, content={"status": "error", "message": "Invalid robot name"})
     record = get_robot_record(name)
     if record is None:
         return JSONResponse(status_code=404, content={"status": "error", "message": "Robot not found"})
