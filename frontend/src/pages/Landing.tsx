@@ -5,7 +5,6 @@ import LandingHeader from "@/components/landing/LandingHeader";
 import HfAuthBanner from "@/components/landing/HfAuthBanner";
 import RobotConfigManager from "@/components/landing/RobotConfigManager";
 import ActionList from "@/components/landing/ActionList";
-import PermissionModal from "@/components/landing/PermissionModal";
 import RecordingModal from "@/components/landing/RecordingModal";
 
 import { Action } from "@/components/landing/types";
@@ -18,7 +17,6 @@ import { isHostedSpace } from "@/lib/isHostedSpace";
 const ON_SPACE = isHostedSpace();
 
 const Landing = () => {
-  const [showPermissionModal, setShowPermissionModal] = useState(false);
   const [showUsageModal, setShowUsageModal] = useState(ON_SPACE);
 
   const { baseUrl, fetchWithHeaders } = useApi();
@@ -167,34 +165,6 @@ const Landing = () => {
     navigate("/recording", { state: { recordingConfig } });
   };
 
-  const handlePermissions = async (allow: boolean) => {
-    setShowPermissionModal(false);
-    if (allow) {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        stream.getTracks().forEach((track) => track.stop());
-        toast({
-          title: "Permissions Granted",
-          description: "Camera and microphone access enabled. Entering control session...",
-        });
-        navigate("/control");
-      } catch (error) {
-        toast({
-          title: "Permission Denied",
-          description: "Camera and microphone access is required for robot control.",
-          variant: "destructive",
-        });
-      }
-    } else {
-      toast({
-        title: "Permission Denied",
-        description: "You can proceed, but with limited functionality.",
-        variant: "destructive",
-      });
-      navigate("/control");
-    }
-  };
-
   // Teleoperation is now per-robot on the tile, so it's not in this list.
   const actions: Action[] = [
     {
@@ -244,12 +214,6 @@ const Landing = () => {
         <RobotConfigManager />
         <ActionList actions={actions} />
       </div>
-
-      <PermissionModal
-        open={showPermissionModal}
-        onOpenChange={setShowPermissionModal}
-        onPermissionsResult={handlePermissions}
-      />
 
       <UsageInstructionsModal
         open={showUsageModal}
