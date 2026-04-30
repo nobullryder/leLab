@@ -1,4 +1,5 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import os
@@ -95,6 +96,12 @@ from .config import (
     save_robot_port,
     get_saved_robot_port,
     get_default_robot_port,
+    save_robot_record,
+    get_robot_record,
+    list_robot_records,
+    delete_robot_record,
+    is_robot_record_clean,
+    is_valid_robot_name,
 )
 
 
@@ -639,6 +646,73 @@ def get_robot_config(robot_type: str, available_configs: str = ""):
     except Exception as e:
         logger.error(f"Error getting robot configuration: {e}")
         return {"status": "error", "message": str(e)}
+
+
+# ============================================================================
+# Robot config records (named robots)
+
+def _record_with_clean(record: dict) -> dict:
+    """Attach `is_clean` to a record for API responses."""
+    return {**record, "is_clean": is_robot_record_clean(record)}
+
+
+@app.get("/robots")
+def get_robots():
+    """List all saved robot records."""
+    try:
+        records = [_record_with_clean(r) for r in list_robot_records()]
+        return {"status": "success", "robots": records}
+    except Exception as e:
+        logger.error(f"Error listing robots: {e}")
+        return {"status": "error", "message": str(e), "robots": []}
+
+
+@app.get("/robots/{name}")
+def get_robot(name: str):
+    """Get a single robot record by name."""
+    record = get_robot_record(name)
+    if record is None:
+        return JSONResponse(status_code=404, content={"status": "error", "message": "Robot not found"})
+    return {"status": "success", "robot": _record_with_clean(record)}
+
+
+@app.post("/robots/{name}")
+def upsert_robot(name: str, data: dict, create: bool = False):
+    """
+    Upsert a robot record.
+
+    - `?create=true` is the "Add Robot" path: returns 409 if a record with that
+      name already exists; otherwise creates with empty fields then merges body.
+    - Without `?create=true` is the "patch" path (e.g., calibration write-back):
+      merges body into existing record. If no record exists, no-ops and returns
+      success — see deletion-during-calibration edge case in the spec.
+    """
+    if not is_valid_robot_name(name):
+        return JSONResponse(status_code=400, content={"status": "error", "message": "Invalid robot name"})
+    try:
+        if create:
+            if get_robot_record(name) is not None:
+                return JSONResponse(status_code=409, content={"status": "error", "message": "A robot with this name already exists"})
+            save_robot_record(name, data or {}, allow_create=True)
+        else:
+            save_robot_record(name, data or {}, allow_create=False)
+        record = get_robot_record(name)
+        if record is None:
+            return {"status": "success", "robot": None}
+        return {"status": "success", "robot": _record_with_clean(record)}
+    except Exception as e:
+        logger.error(f"Error upserting robot {name}: {e}")
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+
+@app.delete("/robots/{name}")
+def delete_robot(name: str):
+    """Delete a robot record."""
+    if not is_valid_robot_name(name):
+        return JSONResponse(status_code=400, content={"status": "error", "message": "Invalid robot name"})
+    if delete_robot_record(name):
+        return {"status": "success"}
+    return JSONResponse(status_code=404, content={"status": "error", "message": "Robot not found"})
 
 
 @app.on_event("shutdown")
