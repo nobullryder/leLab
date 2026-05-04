@@ -124,10 +124,19 @@ const RecordingModal: React.FC<RecordingModalProps> = ({
                   <Input
                     id="datasetName"
                     value={datasetName}
-                    onChange={(e) => setDatasetName(e.target.value)}
+                    onChange={(e) =>
+                      setDatasetName(
+                        e.target.value.replace(/[^A-Za-z0-9._-]/g, "_")
+                      )
+                    }
                     placeholder="my_dataset"
                     className="bg-gray-800 border-gray-700 text-white"
                   />
+                  <p className="text-xs text-gray-500">
+                    Letters, numbers, <code>.</code> <code>_</code>{" "}
+                    <code>-</code> only — other characters become{" "}
+                    <code>_</code>.
+                  </p>
                   {datasetName &&
                     (auth.status === "authenticated" ? (
                       <p className="text-xs text-gray-500">
