@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,6 +24,7 @@ import {
   Loader2,
   Play,
   Square,
+  Circle,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import Logo from "@/components/Logo";
@@ -54,6 +55,15 @@ interface CalibrationRequest {
   robot_name: string | null;
 }
 
+interface RobotRecord {
+  name: string;
+  leader_port: string;
+  follower_port: string;
+  leader_config: string;
+  follower_config: string;
+  is_clean: boolean;
+}
+
 const Calibration = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -66,37 +76,45 @@ const Calibration = () => {
 
   const [deviceType, setDeviceType] = useState<string>("teleop");
   const [port, setPort] = useState<string>("");
+  const [robot, setRobot] = useState<RobotRecord | null>(null);
 
-  // Pre-fill the form from the robot's record on arrival.
+  const fetchRobot = useCallback(async (): Promise<RobotRecord | null> => {
+    if (!robotName) return null;
+    try {
+      const res = await fetchWithHeaders(
+        `${baseUrl}/robots/${encodeURIComponent(robotName)}`
+      );
+      if (!res.ok) return null;
+      const data = await res.json();
+      const r = (data.robot as RobotRecord | null) ?? null;
+      setRobot(r);
+      return r;
+    } catch (e) {
+      console.error("Failed to load robot record:", e);
+      return null;
+    }
+  }, [robotName, baseUrl, fetchWithHeaders]);
+
+  // Initial fetch + form prefill on arrival.
   useEffect(() => {
     if (!robotName) return;
     let cancelled = false;
     (async () => {
-      try {
-        const res = await fetchWithHeaders(
-          `${baseUrl}/robots/${encodeURIComponent(robotName)}`
-        );
-        if (!res.ok) return;
-        const data = await res.json();
-        const robot = data.robot;
-        if (!robot || cancelled) return;
-        // Default to whichever side still needs calibration.
-        const defaultDevice =
-          !robot.leader_config && robot.follower_config ? "robot" : "teleop";
-        setDeviceType(defaultDevice);
-        setPort(
-          defaultDevice === "teleop"
-            ? robot.leader_port || ""
-            : robot.follower_port || ""
-        );
-      } catch (e) {
-        console.error("Failed to load robot record for prefill:", e);
-      }
+      const r = await fetchRobot();
+      if (!r || cancelled) return;
+      const defaultDevice =
+        !r.leader_config && r.follower_config ? "robot" : "teleop";
+      setDeviceType(defaultDevice);
+      setPort(
+        defaultDevice === "teleop"
+          ? r.leader_port || ""
+          : r.follower_port || ""
+      );
     })();
     return () => {
       cancelled = true;
     };
-  }, [robotName, baseUrl, fetchWithHeaders]);
+  }, [robotName, fetchRobot]);
 
   const [showPortDetection, setShowPortDetection] = useState(false);
   const [detectionRobotType, setDetectionRobotType] = useState<
@@ -302,24 +320,21 @@ const Calibration = () => {
     loadDefaultPort();
   }, [deviceType, robotName]);
 
-  const handleDeviceTypeChange = async (next: string) => {
+  const handleDeviceTypeChange = (next: string) => {
     setDeviceType(next);
-    if (!robotName) return;
-    try {
-      const res = await fetchWithHeaders(
-        `${baseUrl}/robots/${encodeURIComponent(robotName)}`
-      );
-      if (!res.ok) return;
-      const data = await res.json();
-      const robot = data.robot;
-      if (!robot) return;
-      setPort(
-        next === "teleop" ? robot.leader_port || "" : robot.follower_port || ""
-      );
-    } catch (e) {
-      console.error("Failed to swap robot record on device toggle:", e);
-    }
+    if (!robot) return;
+    setPort(
+      next === "teleop" ? robot.leader_port || "" : robot.follower_port || ""
+    );
   };
+
+  // Refresh the robot record when a calibration completes so the checklist
+  // flips to ✓ for the side that was just saved.
+  useEffect(() => {
+    if (calibrationStatus.status === "completed") {
+      fetchRobot();
+    }
+  }, [calibrationStatus.status, fetchRobot]);
 
   const handlePortDetection = () => {
     const robotType = deviceType === "robot" ? "follower" : "leader";
@@ -491,6 +506,44 @@ const Calibration = () => {
                   </Button>
                 )}
               </div>
+
+              {robot && (
+                <div className="space-y-2 pt-2">
+                  <div className="text-sm font-medium text-slate-300">
+                    Robot calibration
+                  </div>
+                  <div className="flex items-center gap-2 text-sm">
+                    {robot.leader_config ? (
+                      <CheckCircle className="w-4 h-4 text-green-400" />
+                    ) : (
+                      <Circle className="w-4 h-4 text-slate-500" />
+                    )}
+                    <span
+                      className={
+                        robot.leader_config ? "text-slate-200" : "text-slate-400"
+                      }
+                    >
+                      Leader (Teleoperator)
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm">
+                    {robot.follower_config ? (
+                      <CheckCircle className="w-4 h-4 text-green-400" />
+                    ) : (
+                      <Circle className="w-4 h-4 text-slate-500" />
+                    )}
+                    <span
+                      className={
+                        robot.follower_config
+                          ? "text-slate-200"
+                          : "text-slate-400"
+                      }
+                    >
+                      Follower (Robot)
+                    </span>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
 
