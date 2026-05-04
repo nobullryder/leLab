@@ -63,6 +63,7 @@ yarn-error.log*
 .claude/
 .playwright-mcp/
 .superpowers/
+.worktrees/
 outputs/
 
 # Self-signed dev certs (regenerate per HTTPS_SETUP.md)
