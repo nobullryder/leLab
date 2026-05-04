@@ -1,11 +1,21 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Square, SkipForward, RotateCcw, Play } from "lucide-react";
-import UrdfViewer from "@/components/UrdfViewer";
-import UrdfProcessorInitializer from "@/components/UrdfProcessorInitializer";
-
+import {
+  ArrowLeft,
+  MoreHorizontal,
+  RotateCcw,
+  Square,
+  SkipForward,
+  Play,
+} from "lucide-react";
 import { useApi } from "@/contexts/ApiContext";
 
 interface RecordingConfig {
@@ -397,11 +407,26 @@ const Recording = () => {
     return "bg-gray-500";
   };
 
+  const phaseColor =
+    currentPhase === "recording"
+      ? { dot: "bg-red-500", pill: "bg-red-500/15 text-red-300", timer: "text-green-400", bar: "bg-green-500", button: "bg-green-500 hover:bg-green-600" }
+      : currentPhase === "resetting"
+      ? { dot: "bg-orange-500", pill: "bg-orange-500/15 text-orange-300", timer: "text-orange-400", bar: "bg-orange-500", button: "bg-orange-500 hover:bg-orange-600" }
+      : { dot: "bg-gray-500", pill: "bg-gray-500/15 text-gray-300", timer: "text-gray-400", bar: "bg-gray-500", button: "bg-gray-500" };
+
+  const primaryLabel =
+    currentPhase === "recording"
+      ? "End Episode"
+      : currentPhase === "resetting"
+      ? "Start Next Episode"
+      : "Advance";
+
+  const PrimaryIcon = currentPhase === "recording" ? SkipForward : Play;
+
   return (
     <div className="min-h-screen bg-black text-white p-8">
-      <div className="max-w-6xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
+      <div className="max-w-2xl mx-auto">
+        <div className="mb-8">
           <Button
             onClick={() => navigate("/")}
             variant="outline"
@@ -410,257 +435,90 @@ const Recording = () => {
             <ArrowLeft className="w-4 h-4 mr-2" />
             Back to Home
           </Button>
-
-          <div className="flex items-center gap-6">
-            <div className="flex items-center gap-3">
-              <div className={`w-3 h-3 rounded-full ${getDotColor()}`}></div>
-              <h1 className="text-3xl font-bold">Recording Session</h1>
-            </div>
-          </div>
         </div>
 
-        {/* Main Recording Dashboard */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-          {/* Phase Timer */}
-          <div className="bg-gray-900 rounded-lg p-6 border border-gray-700 text-center">
-            <h2 className="text-sm text-gray-400 mb-2">{getPhaseTitle()}</h2>
-            <div
-              className={`text-4xl font-mono font-bold mb-2 ${
-                currentPhase === "recording"
-                  ? "text-green-400"
-                  : "text-orange-400"
-              }`}
-            >
-              {formatTime(phaseElapsedTime)}
-            </div>
-            <div className="text-sm text-gray-400">
-              / {formatTime(phaseTimeLimit)}
-            </div>
-            <div className="w-full bg-gray-700 rounded-full h-2 mt-3">
-              <div
-                className={`h-2 rounded-full transition-all duration-1000 ${
-                  currentPhase === "recording"
-                    ? "bg-green-500"
-                    : "bg-orange-500"
-                }`}
-                style={{
-                  width: `${Math.min(
-                    (phaseElapsedTime / phaseTimeLimit) * 100,
-                    100
-                  )}%`,
-                }}
-              ></div>
-            </div>
-          </div>
-
-          {/* Episode Progress */}
-          <div className="bg-gray-900 rounded-lg p-6 border border-gray-700 text-center">
-            <h2 className="text-sm text-gray-400 mb-2">Episode Progress</h2>
-            <div className="text-4xl font-bold text-blue-400 mb-2">
-              {currentEpisode} of {totalEpisodes}
-            </div>
-            <div className="text-sm text-gray-400">
-              {recordingConfig.single_task}
-            </div>
-            <div className="w-full bg-gray-700 rounded-full h-2 mt-3">
-              <div
-                className="bg-blue-500 h-2 rounded-full transition-all duration-500"
-                style={{ width: `${(currentEpisode / totalEpisodes) * 100}%` }}
-              ></div>
-            </div>
-          </div>
-
-          {/* Session Timer */}
-          <div className="bg-gray-900 rounded-lg p-6 border border-gray-700 text-center">
-            <h2 className="text-sm text-gray-400 mb-2">Total Session Time</h2>
-            <div className="text-4xl font-mono font-bold text-yellow-400 mb-2">
-              {formatTime(sessionElapsedTime)}
-            </div>
-            <div className="text-sm text-gray-400">
-              Dataset: {recordingConfig.dataset_repo_id}
-            </div>
-          </div>
-        </div>
-
-        {/* Status and Controls */}
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-8">
-          {/* Recording Status - takes up 3 columns */}
-          <div className="lg:col-span-3 bg-gray-900 rounded-lg p-6 border border-gray-700">
-            {/* Status header */}
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h2 className="text-xl font-semibold text-white mb-2">
-                  Recording Status
-                </h2>
-                <div className="flex items-center gap-3">
-                  <div
-                    className={`w-2 h-2 rounded-full ${getDotColor()}`}
-                  ></div>
-                  <span className={`font-semibold ${getStatusColor()}`}>
-                    {getStatusText()}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Recording Phase Controls */}
-            {currentPhase === "recording" && (
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="bg-gray-900 rounded-lg border border-gray-700 p-8">
+          <div className="flex justify-end items-center gap-4 mb-6 text-sm text-gray-400">
+            <span>
+              Episode <span className="text-white font-semibold">{currentEpisode}</span> / {totalEpisodes}
+            </span>
+            <span className="font-mono">{formatTime(sessionElapsedTime)}</span>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
                 <Button
-                  onClick={handleExitEarly}
-                  disabled={
-                    !backendStatus.available_controls.exit_early ||
-                    transitioningToReset
-                  }
-                  className="bg-green-500 hover:bg-green-600 text-white font-semibold py-4 text-lg disabled:opacity-50"
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-gray-400 hover:text-white hover:bg-gray-800"
+                  aria-label="More actions"
                 >
-                  {transitioningToReset ? (
-                    <>
-                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
-                      Moving to Reset...
-                    </>
-                  ) : (
-                    <>
-                      <SkipForward className="w-5 h-5 mr-2" />
-                      End Episode
-                    </>
-                  )}
+                  <MoreHorizontal className="w-5 h-5" />
                 </Button>
-
-                <Button
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="bg-gray-900 border-gray-700 text-white">
+                <DropdownMenuItem
                   onClick={handleRerecordEpisode}
                   disabled={!backendStatus.available_controls.rerecord_episode}
-                  className="bg-orange-500 hover:bg-orange-600 text-white font-semibold py-4 text-lg disabled:opacity-50"
+                  className="focus:bg-gray-800 focus:text-white"
                 >
-                  <RotateCcw className="w-5 h-5 mr-2" />
-                  Re-record Episode
-                </Button>
-
-                <Button
+                  <RotateCcw className="w-4 h-4 mr-2" />
+                  Re-record episode
+                </DropdownMenuItem>
+                <DropdownMenuItem
                   onClick={handleStopRecording}
                   disabled={!backendStatus.available_controls.stop_recording}
-                  className="bg-red-500 hover:bg-red-600 text-white font-semibold py-4 text-lg disabled:opacity-50"
+                  className="text-red-400 focus:bg-gray-800 focus:text-red-300"
                 >
-                  <Square className="w-5 h-5 mr-2" />
-                  Stop Recording
-                </Button>
-              </div>
-            )}
+                  <Square className="w-4 h-4 mr-2" />
+                  Stop recording
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
 
-            {/* Reset Phase Controls */}
-            {currentPhase === "resetting" && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Button
-                  onClick={handleExitEarly}
-                  disabled={
-                    !backendStatus.available_controls.exit_early ||
-                    transitioningToNext
-                  }
-                  className="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-6 text-xl disabled:opacity-50"
-                >
-                  {transitioningToNext ? (
-                    <>
-                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white mr-2"></div>
-                      Moving to Next Episode...
-                    </>
-                  ) : (
-                    <>
-                      <Play className="w-6 h-6 mr-2" />
-                      Continue to Next Phase
-                    </>
-                  )}
-                </Button>
-
-                <Button
-                  onClick={handleStopRecording}
-                  disabled={!backendStatus.available_controls.stop_recording}
-                  className="bg-red-500 hover:bg-red-600 text-white font-semibold py-6 text-xl disabled:opacity-50"
-                >
-                  <Square className="w-5 h-5 mr-2" />
-                  Stop Recording
-                </Button>
-              </div>
-            )}
-
-            {currentPhase === "completed" && (
-              <div className="text-center">
-                <p className="text-lg text-green-400 mb-6">
-                  ✅ Recording session completed successfully!
-                </p>
-                <p className="text-gray-400 mb-6">
-                  Dataset:{" "}
-                  <span className="text-white font-semibold">
-                    {recordingConfig.dataset_repo_id}
-                  </span>
-                </p>
-                <p className="text-gray-400 mb-6">
-                  You will be redirected to the upload window shortly...
-                </p>
-              </div>
-            )}
-
-            {/* Instructions */}
-            <div className="mt-6 p-4 bg-gray-800 rounded-lg">
-              <h3 className="font-semibold mb-2">
-                {currentPhase === "recording"
-                  ? "Episode Recording Instructions:"
-                  : currentPhase === "resetting"
-                  ? "Environment Reset Instructions:"
-                  : "Session Instructions:"}
-              </h3>
-              {currentPhase === "recording" && (
-                <ul className="text-sm text-gray-400 space-y-1">
-                  <li>
-                    • <strong>End Episode:</strong> Complete current episode and
-                    enter reset phase (Right Arrow)
-                  </li>
-                  <li>
-                    • <strong>Re-record Episode:</strong> Restart current
-                    episode after reset phase (Left Arrow)
-                  </li>
-                  <li>
-                    • <strong>Auto-end:</strong> Episode ends automatically
-                    after {formatTime(phaseTimeLimit)}
-                  </li>
-                  <li>
-                    • <strong>Stop Recording:</strong> End entire session (ESC
-                    key)
-                  </li>
-                </ul>
-              )}
-              {currentPhase === "resetting" && (
-                <ul className="text-sm text-gray-400 space-y-1">
-                  <li>
-                    • <strong>Continue to Next Phase:</strong> Skip reset phase
-                    and continue (Right Arrow)
-                  </li>
-                  <li>
-                    • <strong>Auto-continue:</strong> Automatically continues
-                    after {formatTime(phaseTimeLimit)}
-                  </li>
-                  <li>
-                    • <strong>Reset Phase:</strong> Use this time to prepare
-                    your environment for the next episode
-                  </li>
-                  <li>
-                    • <strong>Stop Recording:</strong> End entire session (ESC
-                    key)
-                  </li>
-                </ul>
-              )}
+          <div className="text-center mb-6">
+            <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold tracking-widest ${phaseColor.pill}`}>
+              <span className={`w-2 h-2 rounded-full ${phaseColor.dot} ${currentPhase !== "completed" ? "animate-pulse" : ""}`} />
+              {getStatusText()}
             </div>
           </div>
-        </div>
 
-        {/* URDF Viewer Section */}
-        <div className="bg-gray-900 rounded-lg p-6 border border-gray-700 mb-8">
-          <h2 className="text-xl font-semibold text-white mb-4">
-            Robot Visualizer
-          </h2>
-          <div className="h-96 bg-gray-800 rounded-lg overflow-hidden">
-            <UrdfViewer />
-            <UrdfProcessorInitializer />
+          <div className="text-center mb-4">
+            <div className={`text-7xl font-mono font-bold leading-none ${phaseColor.timer}`}>
+              {formatTime(phaseElapsedTime)}
+            </div>
+            <div className="text-sm text-gray-500 mt-2">
+              / {formatTime(phaseTimeLimit)}
+            </div>
           </div>
+
+          <div className="w-full bg-gray-800 rounded-full h-1.5 mb-8">
+            <div
+              className={`h-1.5 rounded-full transition-all duration-500 ${phaseColor.bar}`}
+              style={{
+                width: `${Math.min((phaseElapsedTime / phaseTimeLimit) * 100, 100)}%`,
+              }}
+            />
+          </div>
+
+          <Button
+            onClick={handleExitEarly}
+            disabled={
+              !backendStatus.available_controls.exit_early ||
+              transitioningToReset ||
+              transitioningToNext ||
+              currentPhase === "completed"
+            }
+            className={`w-full text-white font-semibold py-6 text-lg disabled:opacity-50 ${phaseColor.button}`}
+          >
+            <PrimaryIcon className="w-5 h-5 mr-2" />
+            {primaryLabel}
+          </Button>
+
+          {currentPhase === "completed" && (
+            <p className="text-center text-sm text-gray-400 mt-6">
+              Recording complete — redirecting to upload…
+            </p>
+          )}
         </div>
       </div>
     </div>
