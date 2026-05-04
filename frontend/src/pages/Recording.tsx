@@ -15,7 +15,16 @@ import {
   Square,
   SkipForward,
   Play,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
+import {
+  getMuted,
+  setMuted as persistMuted,
+  playRecordingStartCue,
+  playResetStartCue,
+  playAutoAdvanceWarning,
+} from "@/lib/recordingAudio";
 import { useApi } from "@/contexts/ApiContext";
 import {
   AlertDialog,
@@ -81,6 +90,17 @@ const Recording = () => {
 
   const [optimisticPhase, setOptimisticPhase] = useState<Phase | null>(null);
   const [showStopConfirm, setShowStopConfirm] = useState(false);
+  const [muted, setMutedState] = useState<boolean>(() => getMuted());
+  const prevRealPhaseRef = useRef<Phase | null>(null);
+  const warningFiredForPhaseRef = useRef<{ phase: Phase | null; episode: number | null }>({ phase: null, episode: null });
+
+  const toggleMute = useCallback(() => {
+    setMutedState((prev) => {
+      const next = !prev;
+      persistMuted(next);
+      return next;
+    });
+  }, []);
 
   // Redirect if no config provided
   useEffect(() => {
@@ -117,6 +137,33 @@ const Recording = () => {
 
             if (optimisticPhase && status.current_phase === optimisticPhase) {
               setOptimisticPhase(null);
+            }
+
+            const real = status.current_phase as Phase;
+            const prev = prevRealPhaseRef.current;
+            if (prev !== real) {
+              if (real === "recording" && prev !== null) {
+                playRecordingStartCue();
+              } else if (real === "resetting") {
+                playResetStartCue();
+              }
+              prevRealPhaseRef.current = real;
+              warningFiredForPhaseRef.current = { phase: null, episode: null };
+            }
+
+            const elapsed = status.phase_elapsed_seconds || 0;
+            const limit = status.phase_time_limit_s || 0;
+            const inFinalThreeSeconds =
+              limit > 3 && elapsed >= limit - 3 && elapsed < limit;
+            const ep = status.current_episode || null;
+            const warned = warningFiredForPhaseRef.current;
+            if (
+              inFinalThreeSeconds &&
+              optimisticPhase === null &&
+              (warned.phase !== real || warned.episode !== ep)
+            ) {
+              playAutoAdvanceWarning();
+              warningFiredForPhaseRef.current = { phase: real, episode: ep };
             }
 
             // If backend recording stopped and session ended, navigate to upload
@@ -438,6 +485,15 @@ const Recording = () => {
               Episode <span className="text-white font-semibold">{currentEpisode}</span> / {totalEpisodes}
             </span>
             <span className="font-mono">{formatTime(sessionElapsedTime)}</span>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleMute}
+              aria-label={muted ? "Unmute" : "Mute"}
+              className="h-8 w-8 text-gray-400 hover:text-white hover:bg-gray-800"
+            >
+              {muted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+            </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
