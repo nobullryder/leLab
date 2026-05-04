@@ -1,7 +1,7 @@
 
 import React from "react";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, VideoOff } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 import UrdfViewer from "../UrdfViewer";
 import UrdfProcessorInitializer from "../UrdfProcessorInitializer";
@@ -41,20 +41,6 @@ const VisualizerPanel: React.FC<VisualizerPanelProps> = ({
           <UrdfProcessorInitializer />
           <UrdfViewer />
         </div>
-      </div>
-
-      <div className="grid grid-cols-2 lg:grid-cols-2 gap-2 lg:w-96 flex-shrink-0">
-        {[1, 2, 3, 4].map((cam) => (
-          <div
-            key={cam}
-            className="aspect-video bg-gray-900 rounded-lg border border-gray-800 flex flex-col items-center justify-center p-2"
-          >
-            <VideoOff className="h-8 w-8 text-gray-600 mb-2" />
-            <span className="text-gray-500 text-xs text-center">
-              No Camera Available
-            </span>
-          </div>
-        ))}
       </div>
     </div>
   );

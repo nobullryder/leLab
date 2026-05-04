@@ -2,15 +2,18 @@ import React, { useEffect, useState } from "react";
 import ReplayHeader from "@/components/replay/ReplayHeader";
 import DatasetCombobox from "@/components/replay/DatasetCombobox";
 import EpisodeList from "@/components/replay/EpisodeList";
-import VideoGrid from "@/components/replay/VideoGrid";
-import PlaybackBar from "@/components/replay/PlaybackBar";
-import UrdfViewer from "@/components/UrdfViewer";
-import UrdfProcessorInitializer from "@/components/UrdfProcessorInitializer";
-import { useReplayPlayback } from "@/hooks/useReplayPlayback";
-import { DatasetItem, EpisodeItem } from "@/lib/replayApi";
+import { useApi } from "@/contexts/ApiContext";
+import {
+  DatasetItem,
+  EpisodeItem,
+  listDatasets,
+  listEpisodes,
+} from "@/lib/replayApi";
+
+const SPACE_BASE_URL = "https://lerobot-visualize-dataset.hf.space";
 
 const ReplayDataset: React.FC = () => {
-  const replay = useReplayPlayback();
+  const { baseUrl, fetchWithHeaders } = useApi();
 
   const [datasets, setDatasets] = useState<DatasetItem[]>([]);
   const [datasetsLoading, setDatasetsLoading] = useState(true);
@@ -21,41 +24,34 @@ const ReplayDataset: React.FC = () => {
   const [episodesError, setEpisodesError] = useState<string | null>(null);
   const [selectedEpisode, setSelectedEpisode] = useState<number | null>(null);
 
-  // Load datasets on mount.
   useEffect(() => {
     setDatasetsLoading(true);
-    replay.listDatasets()
+    listDatasets(baseUrl, fetchWithHeaders)
       .then(setDatasets)
       .catch(() => setDatasets([]))
       .finally(() => setDatasetsLoading(false));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [baseUrl, fetchWithHeaders]);
 
-  // Load episodes when repo changes.
   useEffect(() => {
     setSelectedEpisode(null);
     setEpisodes([]);
     setEpisodesError(null);
     if (!selectedRepo) return;
     setEpisodesLoading(true);
-    replay.listEpisodes(selectedRepo)
+    listEpisodes(baseUrl, fetchWithHeaders, selectedRepo)
       .then((r) => setEpisodes(r.episodes))
       .catch((e) => setEpisodesError(e.message || "Failed to load episodes"))
       .finally(() => setEpisodesLoading(false));
-  }, [selectedRepo]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedRepo, baseUrl, fetchWithHeaders]);
 
-  // Auto-start replay when an episode is picked. The hook's `start` internally stops any running session first.
-  useEffect(() => {
-    if (selectedRepo && selectedEpisode !== null) {
-      replay.start(selectedRepo, selectedEpisode);
-    }
-  }, [selectedRepo, selectedEpisode]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const { state } = replay;
-  const disabled = state.status === "idle" || state.status === "loading";
+  const embedUrl =
+    selectedRepo && selectedEpisode !== null
+      ? `${SPACE_BASE_URL}/${selectedRepo}/episode_${selectedEpisode}`
+      : null;
 
   return (
     <div className="h-screen overflow-hidden bg-black text-white flex flex-col p-4 gap-3">
-      <ReplayHeader status={state.status} repoId={state.repoId} episode={state.episode} />
+      <ReplayHeader repoId={selectedRepo} episode={selectedEpisode} />
 
       <div className="grid lg:grid-cols-2 gap-4 h-44 shrink-0">
         <DatasetCombobox
@@ -73,33 +69,21 @@ const ReplayDataset: React.FC = () => {
         />
       </div>
 
-      <div className="flex-1 min-h-0 flex gap-3">
-        <div className="flex-1 min-w-0 bg-gray-900 rounded-lg p-2 border border-gray-700">
-          <UrdfProcessorInitializer />
-          <UrdfViewer />
-        </div>
-        <VideoGrid cameras={state.cameras} registerRefs={replay.setVideoRefs} />
+      <div className="flex-1 min-h-0 bg-gray-900 rounded-lg border border-gray-700 overflow-hidden">
+        {embedUrl ? (
+          <iframe
+            key={embedUrl}
+            src={embedUrl}
+            className="w-full h-full border-0"
+            allow="autoplay; fullscreen"
+            title="LeRobot dataset viewer"
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-gray-500 text-sm">
+            Pick a dataset and episode to load the viewer.
+          </div>
+        )}
       </div>
-
-      <PlaybackBar
-        paused={state.paused}
-        frame={state.frame}
-        totalFrames={state.totalFrames}
-        fps={state.fps}
-        speed={state.speed}
-        disabled={disabled}
-        onPlay={replay.resume}
-        onPause={replay.pause}
-        onStop={replay.stop}
-        onSeek={replay.seek}
-        onSpeedChange={replay.setSpeed}
-      />
-
-      {state.error && (
-        <div className="rounded-md border border-red-700 bg-red-950/40 text-red-200 p-3 text-sm">
-          {state.error}
-        </div>
-      )}
     </div>
   );
 };

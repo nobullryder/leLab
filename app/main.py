@@ -47,16 +47,6 @@ from .training import (
     handle_training_logs,
 )
 
-# Import our custom replay functionality
-from .replaying import (
-    StartReplayRequest,
-    ReplayControlRequest,
-    handle_start_replay,
-    handle_replay_control,
-    handle_stop_replay,
-    handle_replay_status,
-)
-
 from .hf_auth import handle_hf_auth_status
 from . import dataset_browser
 
@@ -390,33 +380,7 @@ def training_logs():
     return handle_training_logs()
 
 
-# ============================================================================
-# REPLAY ENDPOINTS
-# ============================================================================
-
-
-@app.post("/replay/start")
-def replay_start(request: StartReplayRequest):
-    """Start streaming an episode's actions over /ws/joint-data."""
-    return handle_start_replay(request, manager)
-
-
-@app.post("/replay/control")
-def replay_control(request: ReplayControlRequest):
-    """Mutate the active replay session (pause/resume/seek/set_speed)."""
-    return handle_replay_control(request)
-
-
-@app.post("/replay/stop")
-def replay_stop():
-    """Stop the active replay session."""
-    return handle_stop_replay()
-
-
-@app.get("/replay/status")
-def replay_status():
-    """Get the current replay session state."""
-    return handle_replay_status()
+# Replay is rendered by the embedded lerobot/visualize_dataset Space; no backend routes needed.
 
 
 # ============================================================================
@@ -743,11 +707,6 @@ async def shutdown_event():
     logger.info("🔄 FastAPI shutting down, cleaning up...")
 
     # Stop any active recording - handled by recording module cleanup
-
-    # Clean up replay resources
-    from .replaying import cleanup as replay_cleanup
-
-    replay_cleanup()
 
     if manager:
         manager.stop_broadcast_thread()
