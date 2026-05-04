@@ -576,50 +576,54 @@ def _list_avfoundation_cameras() -> Dict[int, str]:
     return names
 
 
-def _capture_avfoundation_thumbnail(index: int) -> str | None:
-    """Capture a small JPEG thumbnail from AVFoundation index ``index`` via ffmpeg.
+def _capture_cv2_thumbnail_subprocess(index: int, backend_value: int) -> str | None:
+    """Capture a thumbnail from cv2.VideoCapture(index, backend) in a fresh subprocess.
 
-    cv2.VideoCapture on macOS often returns the previous camera's framebuffer
-    on the first read, especially when probing multiple indices in a row.
-    ffmpeg's ``-frames:v 1`` after ``-ss`` reliably skips the warmup frames
-    and gives us the actual current image. Returns a base64 data URL or None.
+    Running cv2 in a fresh process eliminates the macOS AVFoundation
+    framebuffer-carryover bug that contaminates back-to-back captures within
+    the same process. The thumbnail produced here matches *exactly* what
+    lerobot will see when it opens the same (index, backend) pair during the
+    recording session, so the user's selection from the dropdown is the
+    camera that actually gets recorded.
     """
     import subprocess
+    import sys
     import base64
+
+    helper = (
+        "import sys, cv2\n"
+        f"cap = cv2.VideoCapture({index}, {backend_value})\n"
+        "if not cap.isOpened():\n"
+        "    sys.exit(2)\n"
+        "frame = None\n"
+        "for _ in range(20):\n"
+        "    ret, candidate = cap.read()\n"
+        "    if ret and candidate is not None and candidate.size > 0:\n"
+        "        frame = candidate\n"
+        "if frame is None:\n"
+        "    sys.exit(3)\n"
+        "small = cv2.resize(frame, (160, 120))\n"
+        "ok, buf = cv2.imencode('.jpg', small, [cv2.IMWRITE_JPEG_QUALITY, 70])\n"
+        "if not ok:\n"
+        "    sys.exit(4)\n"
+        "sys.stdout.buffer.write(buf.tobytes())\n"
+        "cap.release()\n"
+    )
     try:
-        # -ss before -i: seek into the input slightly to skip warmup frames.
-        # -frames:v 1: take exactly one frame.
-        # -vf scale: downscale for thumbnail size.
-        # mjpeg + image2pipe: emit a single JPEG to stdout.
         result = subprocess.run(
-            [
-                "ffmpeg",
-                "-loglevel", "error",
-                "-y",
-                "-f", "avfoundation",
-                "-framerate", "30",
-                "-video_size", "640x480",
-                "-i", str(index),
-                "-frames:v", "1",
-                "-ss", "0.5",
-                "-vf", "scale=160:120",
-                "-q:v", "6",
-                "-f", "image2pipe",
-                "-vcodec", "mjpeg",
-                "pipe:1",
-            ],
+            [sys.executable, "-c", helper],
             capture_output=True,
-            timeout=8,
+            timeout=10,
         )
         if result.returncode != 0 or not result.stdout:
             logger.warning(
-                f"ffmpeg thumbnail capture failed for AVFoundation index {index}: "
+                f"cv2 subprocess thumbnail failed for index {index} (rc={result.returncode}): "
                 f"{result.stderr.decode(errors='replace')[:300]}"
             )
             return None
         return "data:image/jpeg;base64," + base64.b64encode(result.stdout).decode("ascii")
     except (FileNotFoundError, subprocess.TimeoutExpired) as e:
-        logger.warning(f"ffmpeg thumbnail capture unavailable for index {index}: {e}")
+        logger.warning(f"cv2 subprocess thumbnail unavailable for index {index}: {e}")
         return None
 
 
@@ -683,34 +687,12 @@ def get_available_cameras():
                 **index_props[i],
             }
 
-            thumbnail: str | None = None
-            if system == "Darwin":
-                thumbnail = _capture_avfoundation_thumbnail(i)
-
-            if thumbnail is None:
-                # Fallback: cv2 capture (Linux, or ffmpeg unavailable).
-                cap = cv2.VideoCapture(i, backend)
-                if cap.isOpened():
-                    frame = None
-                    for _ in range(15):
-                        ret, candidate = cap.read()
-                        if ret and candidate is not None and candidate.size > 0:
-                            frame = candidate
-                    if frame is not None:
-                        try:
-                            small = cv2.resize(frame, (160, 120))
-                            ok, buf = cv2.imencode(
-                                ".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, 70]
-                            )
-                            if ok:
-                                encoded = base64.b64encode(buf.tobytes()).decode("ascii")
-                                thumbnail = f"data:image/jpeg;base64,{encoded}"
-                        except Exception as thumb_err:
-                            logger.warning(
-                                f"cv2 thumbnail encoding failed for camera {i}: {thumb_err}"
-                            )
-                cap.release()
-
+            # Capture the thumbnail with the *same* cv2 call lerobot will use
+            # during recording, but in a fresh subprocess so cv2's macOS
+            # framebuffer-carryover bug can't mix frames across cameras. The
+            # picture in the dropdown is then guaranteed to match what gets
+            # recorded for that index.
+            thumbnail = _capture_cv2_thumbnail_subprocess(i, int(backend))
             if thumbnail is not None:
                 entry["thumbnail"] = thumbnail
 
