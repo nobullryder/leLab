@@ -316,24 +316,29 @@ class JobRegistry:
                     raise JobAlreadyRunningError(r.id)
 
             job_id = _generate_job_id(config.policy_type, config.dataset_repo_id)
-            output_dir = str(_job_dir(self._output_root, job_id))
+            job_dir = _job_dir(self._output_root, job_id)
+            # LeRobot refuses to start when --output_dir already exists. Our
+            # registry needs to create the job directory ahead of time to write
+            # job.json into it, so point LeRobot at a subdirectory that won't
+            # exist until it creates it.
+            lerobot_output_dir = str(job_dir / "run")
             name = f"{config.policy_type.upper()} · {config.dataset_repo_id}"
             record = JobRecord(
                 id=job_id,
                 name=name,
                 state="running",
                 config=config,
-                output_dir=output_dir,
+                output_dir=lerobot_output_dir,
                 started_at=time.time(),
             )
 
-            _job_dir(self._output_root, job_id).mkdir(parents=True, exist_ok=True)
+            job_dir.mkdir(parents=True, exist_ok=True)
             self._records[job_id] = record
             self._persist(record, force=True)
 
             runner = LocalJobRunner(record.metrics)
             try:
-                runner.start(job_id, config, output_dir)
+                runner.start(job_id, config, lerobot_output_dir)
             except Exception as exc:
                 logger.exception("Failed to start subprocess for job %s", job_id)
                 record.state = "failed"
