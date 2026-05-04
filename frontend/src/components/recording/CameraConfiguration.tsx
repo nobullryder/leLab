@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
@@ -9,7 +9,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { Camera, Plus, X, Video, VideoOff } from "lucide-react";
+import { Camera, Plus, X, VideoOff } from "lucide-react";
 import { useApi } from "@/contexts/ApiContext";
 import { useToast } from "@/hooks/use-toast";
 
@@ -19,6 +19,7 @@ export interface CameraConfig {
   type: string;
   camera_index?: number; // Keep for backend compatibility
   device_id: string; // Use this for actual camera selection
+  thumbnail?: string; // Backend-captured frame, shown as the static preview
   width: number;
   height: number;
   fps?: number;
@@ -52,116 +53,41 @@ const CameraConfiguration: React.FC<CameraConfigurationProps> = ({
   const [selectedCameraIndex, setSelectedCameraIndex] = useState<string>("");
   const [cameraName, setCameraName] = useState("");
   const [isLoadingCameras, setIsLoadingCameras] = useState(false);
-  const [cameraStreams, setCameraStreams] = useState<Map<string, MediaStream>>(
-    new Map()
-  );
 
   // Fetch available cameras on component mount
   useEffect(() => {
     fetchAvailableCameras();
   }, []);
 
-  const enumerateBrowserVideoDevices = async (): Promise<
-    { deviceId: string; label: string }[]
-  > => {
-    try {
-      const tempStream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-      });
-      tempStream.getTracks().forEach((track) => track.stop());
-    } catch (permError) {
-      console.warn(
-        "⚠️ Camera permission denied; deviceIds may be empty",
-        permError
-      );
-    }
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    return devices
-      .filter((d) => d.kind === "videoinput")
-      .map((d) => ({ deviceId: d.deviceId, label: d.label }));
-  };
-
-  const matchBrowserDeviceByName = (
-    backendName: string,
-    browserDevices: { deviceId: string; label: string }[],
-    used: Set<string>
-  ): { deviceId: string; label: string } | undefined => {
-    const normalize = (s: string) =>
-      s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-    const target = normalize(backendName);
-    if (!target) return undefined;
-    const targetTokens = target.split(" ").filter(Boolean);
-
-    let best: { dev: { deviceId: string; label: string }; score: number } | null = null;
-    for (const dev of browserDevices) {
-      if (used.has(dev.deviceId)) continue;
-      const label = normalize(dev.label);
-      if (!label) continue;
-      let score = 0;
-      if (label === target) score = 1000;
-      else if (label.includes(target) || target.includes(label)) score = 500;
-      else {
-        const labelTokens = new Set(label.split(" ").filter(Boolean));
-        score = targetTokens.filter((t) => labelTokens.has(t)).length;
-      }
-      if (score > 0 && (!best || score > best.score)) {
-        best = { dev, score };
-      }
-    }
-    return best?.dev;
-  };
-
   const fetchAvailableCameras = async () => {
     setIsLoadingCameras(true);
     try {
-      // The backend's OpenCV indices are the source of truth — recording uses
-      // them directly. The backend now also returns reliable names (via ffmpeg
-      // AVFoundation on macOS). Match browser deviceIds to those names so the
-      // live preview opens the *same* physical camera as the thumbnail.
-      const browserDevices = await enumerateBrowserVideoDevices();
       const response = await fetchWithHeaders(`${baseUrl}/available-cameras`);
-
-      if (response.ok) {
-        const data = await response.json();
-        const backendCams = (data.cameras || []) as {
-          index: number;
-          name?: string;
-          available: boolean;
-          thumbnail?: string;
-        }[];
-
-        const used = new Set<string>();
-        const merged: AvailableCamera[] = backendCams.map((cam) => {
-          const matched = cam.name
-            ? matchBrowserDeviceByName(cam.name, browserDevices, used)
-            : undefined;
-          if (matched) used.add(matched.deviceId);
-          return {
-            index: cam.index,
-            deviceId: matched?.deviceId || `fallback_${cam.index}`,
-            name: cam.name || matched?.label || `Camera ${cam.index}`,
-            available: cam.available,
-            thumbnail: cam.thumbnail,
-          };
-        });
-        setAvailableCameras(merged);
-      } else {
-        // Backend unreachable — fall back to browser-only detection. Indices
-        // here are positional and may not match OpenCV's view of the world.
-        const fallback: AvailableCamera[] = browserDevices.map((d, i) => ({
-          index: i,
-          deviceId: d.deviceId || `fallback_${i}`,
-          name: d.label || `Camera ${i + 1}`,
-          available: true,
-        }));
-        setAvailableCameras(fallback);
+      if (!response.ok) {
+        setAvailableCameras([]);
+        return;
       }
+      const data = await response.json();
+      const backendCams = (data.cameras || []) as {
+        index: number;
+        name?: string;
+        available: boolean;
+        thumbnail?: string;
+      }[];
+      setAvailableCameras(
+        backendCams.map((cam) => ({
+          index: cam.index,
+          deviceId: `cv2_${cam.index}`,
+          name: cam.name || `Camera ${cam.index}`,
+          available: cam.available,
+          thumbnail: cam.thumbnail,
+        }))
+      );
     } catch (error) {
       console.error("Camera enumeration failed:", error);
       toast({
         title: "Camera Detection Failed",
-        description:
-          "Could not detect available cameras. Please check permissions.",
+        description: "Could not detect available cameras.",
         variant: "destructive",
       });
     } finally {
@@ -169,150 +95,7 @@ const CameraConfiguration: React.FC<CameraConfigurationProps> = ({
     }
   };
 
-  const startCameraPreview = async (cameraConfig: CameraConfig) => {
-    try {
-      console.log(
-        "🎥 Starting camera preview for:",
-        cameraConfig.name,
-        "with device_id:",
-        cameraConfig.device_id,
-        "camera_index:",
-        cameraConfig.camera_index
-      );
-
-      // Create constraints with fallbacks to avoid OverconstrainedError
-      const constraints: MediaStreamConstraints = {
-        video: {
-          width: { ideal: cameraConfig.width, min: 320, max: 1920 },
-          height: { ideal: cameraConfig.height, min: 240, max: 1080 },
-          frameRate: { ideal: cameraConfig.fps || 30, min: 10, max: 60 },
-        },
-      };
-
-      // Only add deviceId if it's not a fallback
-      if (
-        cameraConfig.device_id &&
-        !cameraConfig.device_id.startsWith("fallback_")
-      ) {
-        (constraints.video as MediaTrackConstraints).deviceId = {
-          exact: cameraConfig.device_id, // Changed from 'ideal' to 'exact'
-        };
-        console.log(
-          "🔧 Using EXACT deviceId constraint:",
-          cameraConfig.device_id
-        );
-      } else {
-        console.log("⚠️ No valid deviceId, will use default camera");
-      }
-
-      console.log(
-        "📋 Final constraints:",
-        JSON.stringify(constraints, null, 2)
-      );
-
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-
-      // Get the actual device being used
-      const videoTrack = stream.getVideoTracks()[0];
-      if (videoTrack) {
-        const settings = videoTrack.getSettings();
-        console.log("✅ Actual camera settings:", {
-          deviceId: settings.deviceId,
-          label: videoTrack.label,
-          width: settings.width,
-          height: settings.height,
-        });
-
-        // Check if we got the camera we requested
-        if (
-          cameraConfig.device_id &&
-          settings.deviceId !== cameraConfig.device_id
-        ) {
-          console.warn(
-            "⚠️ CAMERA MISMATCH! Requested:",
-            cameraConfig.device_id,
-            "Got:",
-            settings.deviceId
-          );
-        } else {
-          console.log("✅ Camera match confirmed!");
-        }
-      }
-
-      console.log(
-        "Camera stream created successfully for:",
-        cameraConfig.name,
-        {
-          streamId: stream.id,
-          tracks: stream.getTracks().length,
-          videoTracks: stream.getVideoTracks().length,
-          active: stream.active,
-        }
-      );
-
-      setCameraStreams((prev) => {
-        const newMap = new Map(prev.set(cameraConfig.id, stream));
-        console.log("Updated camera streams map:", Array.from(newMap.keys()));
-        return newMap;
-      });
-
-      // Force a small delay to ensure state update
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      return stream;
-    } catch (error: unknown) {
-      console.error("Error starting camera preview:", error);
-
-      const isMediaError = error instanceof Error;
-      const errorName = isMediaError ? error.name : "";
-      const errorMessage = isMediaError ? error.message : "Unknown error";
-
-      // If constraints failed, try with basic constraints
-      if (
-        errorName === "OverconstrainedError" ||
-        errorName === "NotReadableError"
-      ) {
-        try {
-          console.log("Retrying with basic constraints...");
-          const basicStream = await navigator.mediaDevices.getUserMedia({
-            video: { width: 640, height: 480 },
-          });
-
-          setCameraStreams(
-            (prev) => new Map(prev.set(cameraConfig.id, basicStream))
-          );
-          toast({
-            title: "Camera Preview Started",
-            description: `${cameraConfig.name} started with basic settings due to constraint issues.`,
-          });
-          return basicStream;
-        } catch (basicError) {
-          console.error("Error with basic constraints:", basicError);
-        }
-      }
-
-      toast({
-        title: "Camera Preview Failed",
-        description: `Could not start preview for ${cameraConfig.name}: ${errorMessage}`,
-        variant: "destructive",
-      });
-      return null;
-    }
-  };
-
-  const stopCameraPreview = (cameraId: string) => {
-    const stream = cameraStreams.get(cameraId);
-    if (stream) {
-      stream.getTracks().forEach((track) => track.stop());
-      setCameraStreams((prev) => {
-        const newMap = new Map(prev);
-        newMap.delete(cameraId);
-        return newMap;
-      });
-    }
-  };
-
-  const addCamera = async () => {
+  const addCamera = () => {
     if (!selectedCameraIndex || !cameraName.trim()) {
       toast({
         title: "Missing Information",
@@ -352,25 +135,14 @@ const CameraConfiguration: React.FC<CameraConfigurationProps> = ({
       type: "opencv",
       camera_index: selectedCamera.index,
       device_id: selectedCamera.deviceId,
+      thumbnail: selectedCamera.thumbnail,
       width: 640,
       height: 480,
       fps: 30,
     };
 
-    console.log("🆕 Creating new camera config:", {
-      name: newCamera.name,
-      camera_index: newCamera.camera_index,
-      device_id: newCamera.device_id,
-      selectedCamera: selectedCamera,
-    });
+    onCamerasChange([...cameras, newCamera]);
 
-    const updatedCameras = [...cameras, newCamera];
-    onCamerasChange(updatedCameras);
-
-    // Start preview for the new camera
-    await startCameraPreview(newCamera);
-
-    // Reset form
     setSelectedCameraIndex("");
     setCameraName("");
 
@@ -381,10 +153,7 @@ const CameraConfiguration: React.FC<CameraConfigurationProps> = ({
   };
 
   const removeCamera = (cameraId: string) => {
-    stopCameraPreview(cameraId);
-    const updatedCameras = cameras.filter((cam) => cam.id !== cameraId);
-    onCamerasChange(updatedCameras);
-
+    onCamerasChange(cameras.filter((cam) => cam.id !== cameraId));
     toast({
       title: "Camera Removed",
       description: "Camera has been removed from the configuration.",
@@ -392,22 +161,16 @@ const CameraConfiguration: React.FC<CameraConfigurationProps> = ({
   };
 
   const updateCamera = (cameraId: string, updates: Partial<CameraConfig>) => {
-    const updatedCameras = cameras.map((cam) =>
-      cam.id === cameraId ? { ...cam, ...updates } : cam
+    onCamerasChange(
+      cameras.map((cam) =>
+        cam.id === cameraId ? { ...cam, ...updates } : cam
+      )
     );
-    onCamerasChange(updatedCameras);
   };
 
-  // Function to release all camera streams (for recording start)
-  const releaseAllCameraStreams = useCallback(() => {
-    console.log("🔓 Releasing all camera streams for recording...");
-    cameraStreams.forEach((stream, cameraId) => {
-      console.log(`🔓 Stopping stream for camera: ${cameraId}`);
-      stream.getTracks().forEach((track) => track.stop());
-    });
-    setCameraStreams(new Map());
-    console.log("✅ All camera streams released");
-  }, [cameraStreams]);
+  // No browser-side streams to release; the parent's releaseStreamsRef stays
+  // wired so existing callers don't break, but it's now a no-op.
+  const releaseAllCameraStreams = useCallback(() => {}, []);
 
   // Expose the release function to parent component via ref
   useEffect(() => {
@@ -416,14 +179,6 @@ const CameraConfiguration: React.FC<CameraConfigurationProps> = ({
     }
   }, [releaseStreamsRef, releaseAllCameraStreams]);
 
-  // Clean up streams on component unmount
-  useEffect(() => {
-    return () => {
-      cameraStreams.forEach((stream) => {
-        stream.getTracks().forEach((track) => track.stop());
-      });
-    };
-  }, []);
 
   return (
     <div className="space-y-4">
@@ -528,10 +283,8 @@ const CameraConfiguration: React.FC<CameraConfigurationProps> = ({
               <CameraPreview
                 key={camera.id}
                 camera={camera}
-                stream={cameraStreams.get(camera.id)}
                 onRemove={() => removeCamera(camera.id)}
                 onUpdate={(updates) => updateCamera(camera.id, updates)}
-                onStartPreview={() => startCameraPreview(camera)}
               />
             ))}
           </div>
@@ -550,120 +303,28 @@ const CameraConfiguration: React.FC<CameraConfigurationProps> = ({
 
 interface CameraPreviewProps {
   camera: CameraConfig;
-  stream?: MediaStream;
   onRemove: () => void;
   onUpdate: (updates: Partial<CameraConfig>) => void;
-  onStartPreview: () => void;
 }
 
 const CameraPreview: React.FC<CameraPreviewProps> = ({
   camera,
-  stream,
   onRemove,
   onUpdate,
-  onStartPreview,
 }) => {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [isPreviewActive, setIsPreviewActive] = useState(false);
-
-  // Debug logging for props
-  console.log("CameraPreview render for:", camera.name, {
-    hasStream: !!stream,
-    streamActive: stream?.active,
-    isPreviewActive,
-    streamId: stream?.id,
-  });
-
-  useEffect(() => {
-    const video = videoRef.current;
-    if (video && stream) {
-      console.log("Setting stream to video element for camera:", camera.name);
-      video.srcObject = stream;
-
-      // Explicitly play the video to ensure it starts
-      const playVideo = async () => {
-        try {
-          await video.play();
-          console.log("Video playing successfully for camera:", camera.name);
-          setIsPreviewActive(true);
-        } catch (error) {
-          console.error("Error playing video for camera:", camera.name, error);
-          // Try to play without audio in case autoplay is blocked
-          video.muted = true;
-          try {
-            await video.play();
-            console.log("Video playing muted for camera:", camera.name);
-            setIsPreviewActive(true);
-          } catch (mutedError) {
-            console.error("Error playing muted video:", mutedError);
-            setIsPreviewActive(false);
-          }
-        }
-      };
-
-      // Wait for metadata to load before playing
-      if (video.readyState >= 1) {
-        playVideo();
-      } else {
-        video.addEventListener("loadedmetadata", playVideo, { once: true });
-      }
-    } else {
-      console.log("No stream or video element for camera:", camera.name);
-      setIsPreviewActive(false);
-    }
-  }, [stream, camera.name]);
-
-  useEffect(() => {
-    // Auto-start preview when camera is added
-    if (!stream && !isPreviewActive) {
-      console.log("Auto-starting preview for camera:", camera.name);
-      onStartPreview();
-    }
-  }, [stream, isPreviewActive, onStartPreview, camera.name]);
-
   return (
     <div className="bg-gray-900 rounded-lg border border-gray-700 overflow-hidden">
-      {/* Camera Preview */}
       <div className="aspect-[4/3] bg-gray-800 relative">
-        {/* Always show the video element if we have a stream, regardless of isPreviewActive */}
-        {stream ? (
-          <>
-            <video
-              ref={videoRef}
-              autoPlay
-              muted
-              playsInline
-              className="w-full h-full object-cover"
-              onLoadedMetadata={() =>
-                console.log("Video metadata loaded for:", camera.name)
-              }
-              onPlay={() =>
-                console.log("Video started playing for:", camera.name)
-              }
-              onError={(e) => console.error("Video error for:", camera.name, e)}
-              onCanPlay={() => console.log("Video can play for:", camera.name)}
-            />
-            <div className="absolute top-2 left-2">
-              <div className="flex items-center gap-1 bg-black/50 px-2 py-1 rounded text-xs">
-                <div className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse"></div>
-                <span className="text-green-400">
-                  {isPreviewActive ? "LIVE" : "LOADING"}
-                </span>
-              </div>
-            </div>
-          </>
+        {camera.thumbnail ? (
+          <img
+            src={camera.thumbnail}
+            alt={camera.name}
+            className="w-full h-full object-cover"
+          />
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center">
             <VideoOff className="w-8 h-8 text-gray-500 mb-2" />
-            <span className="text-gray-500 text-sm">Preview not available</span>
-            <Button
-              onClick={onStartPreview}
-              size="sm"
-              className="mt-2 bg-blue-500 hover:bg-blue-600"
-            >
-              <Video className="w-3 h-3 mr-1" />
-              Start Preview
-            </Button>
+            <span className="text-gray-500 text-sm">No preview captured</span>
           </div>
         )}
       </div>

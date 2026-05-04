@@ -557,93 +557,6 @@ def get_available_ports():
         return {"status": "error", "message": str(e)}
 
 
-def _list_avfoundation_cameras() -> Dict[int, str]:
-    """Return {index: name} for AVFoundation video devices on macOS via ffmpeg.
-
-    The order matches OpenCV's AVFoundation backend, so the names returned
-    here can be used to label the cv2.VideoCapture indices reliably.
-    """
-    import subprocess
-    import re
-    try:
-        result = subprocess.run(
-            ["ffmpeg", "-f", "avfoundation", "-list_devices", "true", "-i", ""],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
-        logger.warning(f"ffmpeg AVFoundation listing unavailable: {e}")
-        return {}
-
-    names: Dict[int, str] = {}
-    in_video_section = False
-    for line in result.stderr.splitlines():
-        if "AVFoundation video devices" in line:
-            in_video_section = True
-            continue
-        if "AVFoundation audio devices" in line:
-            break
-        if not in_video_section:
-            continue
-        m = re.search(r"\[(\d+)\]\s+(.+?)\s*$", line)
-        if m:
-            names[int(m.group(1))] = m.group(2).strip()
-    return names
-
-
-def _capture_avfoundation_jpeg(index: int) -> bytes | None:
-    """Capture a small JPEG from AVFoundation index ``index`` via ffmpeg.
-
-    Used for similarity matching against cv2 thumbnails so we can pin the
-    right AVFoundation device name to each cv2 index. cv2 and ffmpeg
-    enumerate AVFoundation devices in different orders on macOS.
-    """
-    import subprocess
-    try:
-        result = subprocess.run(
-            [
-                "ffmpeg",
-                "-loglevel", "error",
-                "-y",
-                "-f", "avfoundation",
-                "-framerate", "30",
-                "-video_size", "640x480",
-                "-i", str(index),
-                "-frames:v", "1",
-                "-ss", "0.5",
-                "-vf", "scale=64:48",
-                "-q:v", "8",
-                "-f", "image2pipe",
-                "-vcodec", "mjpeg",
-                "pipe:1",
-            ],
-            capture_output=True,
-            timeout=8,
-        )
-        if result.returncode != 0 or not result.stdout:
-            return None
-        return result.stdout
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return None
-
-
-def _frame_signature(jpeg: bytes):
-    """Decode a JPEG to an 8x8 grayscale signature for similarity matching."""
-    import cv2
-    import numpy as np
-    arr = np.frombuffer(jpeg, dtype=np.uint8)
-    img = cv2.imdecode(arr, cv2.IMREAD_GRAYSCALE)
-    if img is None:
-        return None
-    return cv2.resize(img, (8, 8)).astype(np.float32)
-
-
-def _signature_distance(sig_a, sig_b) -> float:
-    import numpy as np
-    return float(np.mean(np.abs(sig_a - sig_b)))
-
-
 def _capture_cv2_thumbnail_subprocess(index: int, backend_value: int) -> bytes | None:
     """Capture a JPEG thumbnail from cv2.VideoCapture(index, backend) in a fresh subprocess.
 
@@ -702,10 +615,12 @@ def _capture_cv2_thumbnail_subprocess(index: int, backend_value: int) -> bytes |
 def get_available_cameras():
     """Get all available cameras with a JPEG thumbnail per OpenCV index.
 
-    The thumbnail is the source of truth for camera identity: the frontend
-    shows it so the user picks an index by what the *backend* actually sees,
-    avoiding the mismatch between browser enumeration order and OpenCV's
-    AVFoundation/V4L2 indexing.
+    The thumbnail is the only reliable identity for an OpenCV index on macOS:
+    cv2's AVFoundation backend doesn't expose device names or UUIDs, so we
+    let the user pick by what the camera actually sees. Each thumbnail is
+    captured with the same cv2.VideoCapture(index, backend) call lerobot
+    will use during recording, so picking a thumbnail = picking the camera
+    that records.
     """
     try:
         import cv2
@@ -714,8 +629,7 @@ def get_available_cameras():
         cameras = []
 
         # Pin the backend so the indices we hand back match what the recording
-        # session will see. cv2.CAP_ANY can otherwise pick a different backend
-        # on subsequent calls (notably macOS), silently reordering cameras.
+        # session will see.
         system = platform.system()
         if system == "Darwin":
             backend = cv2.CAP_AVFOUNDATION
@@ -724,87 +638,25 @@ def get_available_cameras():
         else:
             backend = cv2.CAP_ANY
 
-        avf_names = _list_avfoundation_cameras() if system == "Darwin" else {}
-
-        # Probe which OpenCV indices are available; we still want lerobot's
-        # cv2 backend to be the source of truth for "what indices exist," but
-        # on macOS we capture the thumbnail with ffmpeg below to avoid cv2's
-        # cross-camera framebuffer carryover.
-        available_indices: List[int] = []
-        index_props: Dict[int, Dict[str, int]] = {}
         for i in range(10):
             cap = cv2.VideoCapture(i, backend)
             if not cap.isOpened():
                 cap.release()
                 continue
-            available_indices.append(i)
-            index_props[i] = {
+            entry = {
+                "index": i,
+                "name": f"Camera {i}",
+                "available": True,
                 "width": int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
                 "height": int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
                 "fps": int(cap.get(cv2.CAP_PROP_FPS)),
             }
             cap.release()
 
-        logger.info(
-            f"📷 /available-cameras: indices={available_indices} "
-            f"avf_names={avf_names}"
-        )
-
-        # 1. Capture the cv2 thumbnail for each cv2 index. This is the picture
-        #    that will actually get recorded if the user selects this index.
-        cv2_jpegs: Dict[int, bytes] = {}
-        for i in available_indices:
+            # The thumbnail is captured in a fresh subprocess to dodge cv2's
+            # macOS framebuffer carryover, but with the same (index, backend)
+            # arguments the recorder will use.
             jpeg = _capture_cv2_thumbnail_subprocess(i, int(backend))
-            if jpeg is not None:
-                cv2_jpegs[i] = jpeg
-
-        # 2. On macOS, capture an ffmpeg AVFoundation frame for each named
-        #    index, then match each cv2 thumbnail to the closest ffmpeg frame
-        #    by visual similarity. cv2 and ffmpeg index AVFoundation devices
-        #    in different orders, so the name we display has to come from
-        #    whichever ffmpeg frame *looks like* this cv2 frame.
-        cv2_index_to_name: Dict[int, str] = {}
-        if system == "Darwin" and avf_names and cv2_jpegs:
-            ffmpeg_sigs: Dict[int, Any] = {}
-            for ff_idx in avf_names:
-                jpeg = _capture_avfoundation_jpeg(ff_idx)
-                if jpeg is None:
-                    continue
-                sig = _frame_signature(jpeg)
-                if sig is not None:
-                    ffmpeg_sigs[ff_idx] = sig
-
-            used_ff_indices: set = set()
-            for cv2_idx, cv2_jpeg in cv2_jpegs.items():
-                cv2_sig = _frame_signature(cv2_jpeg)
-                if cv2_sig is None:
-                    continue
-                best_ff_idx = None
-                best_distance = float("inf")
-                for ff_idx, ff_sig in ffmpeg_sigs.items():
-                    if ff_idx in used_ff_indices:
-                        continue
-                    distance = _signature_distance(cv2_sig, ff_sig)
-                    if distance < best_distance:
-                        best_distance = distance
-                        best_ff_idx = ff_idx
-                if best_ff_idx is not None:
-                    cv2_index_to_name[cv2_idx] = avf_names[best_ff_idx]
-                    used_ff_indices.add(best_ff_idx)
-                    logger.info(
-                        f"🔗 cv2 index {cv2_idx} matched ffmpeg index {best_ff_idx} "
-                        f"({avf_names[best_ff_idx]!r}) with distance {best_distance:.1f}"
-                    )
-
-        for i in available_indices:
-            entry = {
-                "index": i,
-                "name": cv2_index_to_name.get(i, avf_names.get(i, f"Camera {i}")),
-                "available": True,
-                **index_props[i],
-            }
-
-            jpeg = cv2_jpegs.get(i)
             if jpeg is not None:
                 entry["thumbnail"] = "data:image/jpeg;base64," + base64.b64encode(jpeg).decode("ascii")
 
