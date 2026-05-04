@@ -73,12 +73,13 @@ const ReplayDataset: React.FC = () => {
         />
       </div>
 
-      <div className="flex-1 min-h-0 bg-gray-900 rounded-lg p-2 border border-gray-700">
-        <UrdfProcessorInitializer />
-        <UrdfViewer />
+      <div className="flex-1 min-h-0 flex gap-3">
+        <div className="flex-1 min-w-0 bg-gray-900 rounded-lg p-2 border border-gray-700">
+          <UrdfProcessorInitializer />
+          <UrdfViewer />
+        </div>
+        <VideoGrid cameras={state.cameras} registerRefs={replay.setVideoRefs} />
       </div>
-
-      <VideoGrid cameras={state.cameras} registerRefs={replay.setVideoRefs} />
 
       <PlaybackBar
         paused={state.paused}
