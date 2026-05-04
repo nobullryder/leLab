@@ -60,89 +60,78 @@ const CameraConfiguration: React.FC<CameraConfigurationProps> = ({
     fetchAvailableCameras();
   }, []);
 
+  const enumerateBrowserVideoDevices = async (): Promise<
+    { deviceId: string; label: string }[]
+  > => {
+    try {
+      const tempStream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+      });
+      tempStream.getTracks().forEach((track) => track.stop());
+    } catch (permError) {
+      console.warn(
+        "⚠️ Camera permission denied; deviceIds may be empty",
+        permError
+      );
+    }
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    return devices
+      .filter((d) => d.kind === "videoinput")
+      .map((d) => ({ deviceId: d.deviceId, label: d.label }));
+  };
+
   const fetchAvailableCameras = async () => {
-    console.log("🚀 fetchAvailableCameras() called");
     setIsLoadingCameras(true);
     try {
-      console.log(
-        "📡 Trying backend endpoint:",
-        `${baseUrl}/available-cameras`
-      );
+      // The backend enumerates cameras through OpenCV — those are the indices
+      // that recording will actually use. Pair them positionally with the
+      // browser's deviceIds so the modal preview can target the same camera
+      // the backend will open.
+      const browserDevices = await enumerateBrowserVideoDevices();
       const response = await fetchWithHeaders(`${baseUrl}/available-cameras`);
-      console.log("📡 Backend response status:", response.status, response.ok);
 
       if (response.ok) {
         const data = await response.json();
-        console.log("📡 Backend camera data received:", data);
-        setAvailableCameras(data.cameras || []);
+        const backendCams = (data.cameras || []) as {
+          index: number;
+          name?: string;
+          available: boolean;
+        }[];
 
-        // Always also try browser detection to get device IDs
-        console.log("🔄 Also running browser detection for device IDs...");
-        await detectBrowserCameras();
+        const merged: AvailableCamera[] = backendCams.map((cam, i) => ({
+          index: cam.index,
+          deviceId: browserDevices[i]?.deviceId || `fallback_${cam.index}`,
+          name: browserDevices[i]?.label || cam.name || `Camera ${cam.index}`,
+          available: cam.available,
+        }));
+        setAvailableCameras(merged);
+
+        if (browserDevices.length !== backendCams.length) {
+          console.warn(
+            `Camera count mismatch: browser=${browserDevices.length}, backend=${backendCams.length}. Preview may not match the recorded camera — record a short test to verify.`
+          );
+        }
       } else {
-        console.log("📡 Backend failed, falling back to browser detection");
-        // Fallback to browser camera detection
-        await detectBrowserCameras();
+        // Backend unreachable — fall back to browser-only detection. Indices
+        // here are positional and may not match OpenCV's view of the world.
+        const fallback: AvailableCamera[] = browserDevices.map((d, i) => ({
+          index: i,
+          deviceId: d.deviceId || `fallback_${i}`,
+          name: d.label || `Camera ${i + 1}`,
+          available: true,
+        }));
+        setAvailableCameras(fallback);
       }
     } catch (error) {
-      console.error("📡 Error fetching cameras from backend:", error);
-      console.log("🔄 Falling back to browser detection due to error");
-      // Fallback to browser camera detection
-      await detectBrowserCameras();
-    } finally {
-      setIsLoadingCameras(false);
-      console.log("✅ fetchAvailableCameras() completed");
-    }
-  };
-
-  const detectBrowserCameras = async () => {
-    try {
-      // First, request camera permissions to get proper device IDs and labels
-      console.log("🔐 Requesting camera permissions for device detection...");
-      try {
-        const tempStream = await navigator.mediaDevices.getUserMedia({
-          video: true,
-        });
-        console.log("✅ Camera permission granted, stopping temp stream");
-        tempStream.getTracks().forEach((track) => track.stop());
-      } catch (permError) {
-        console.warn(
-          "⚠️ Camera permission denied, device IDs may be empty:",
-          permError
-        );
-      }
-
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const videoDevices = devices.filter(
-        (device) => device.kind === "videoinput"
-      );
-
-      console.log(
-        "🔍 Raw video devices from enumerateDevices:",
-        videoDevices.map((d) => ({
-          deviceId: d.deviceId,
-          label: d.label,
-          kind: d.kind,
-        }))
-      );
-
-      const detectedCameras = videoDevices.map((device, index) => ({
-        index,
-        deviceId: device.deviceId || `fallback_${index}`, // Fallback if deviceId is empty
-        name: device.label || `Camera ${index + 1}`,
-        available: true,
-      }));
-
-      console.log("🎬 Browser cameras with indices mapped:", detectedCameras);
-      setAvailableCameras(detectedCameras);
-    } catch (error) {
-      console.error("Error detecting browser cameras:", error);
+      console.error("Camera enumeration failed:", error);
       toast({
         title: "Camera Detection Failed",
         description:
           "Could not detect available cameras. Please check permissions.",
         variant: "destructive",
       });
+    } finally {
+      setIsLoadingCameras(false);
     }
   };
 
