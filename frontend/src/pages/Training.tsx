@@ -7,10 +7,24 @@ import TrainingTabs from "@/components/training/TrainingTabs";
 import ConfigurationTab from "@/components/training/ConfigurationTab";
 import MonitoringTab from "@/components/training/MonitoringTab";
 import TrainingControls from "@/components/training/TrainingControls";
+import { useApi } from "@/contexts/ApiContext";
+import { DatasetItem, listDatasets } from "@/lib/replayApi";
 
 const Training = () => {
   const { toast } = useToast();
   const logContainerRef = useRef<HTMLDivElement>(null);
+  const { baseUrl, fetchWithHeaders } = useApi();
+
+  const [datasets, setDatasets] = useState<DatasetItem[]>([]);
+  const [datasetsLoading, setDatasetsLoading] = useState(true);
+
+  useEffect(() => {
+    setDatasetsLoading(true);
+    listDatasets(baseUrl, fetchWithHeaders)
+      .then(setDatasets)
+      .catch(() => setDatasets([]))
+      .finally(() => setDatasetsLoading(false));
+  }, [baseUrl, fetchWithHeaders]);
 
   const [trainingConfig, setTrainingConfig] = useState<TrainingConfig>({
     dataset_repo_id: "",
@@ -198,7 +212,12 @@ const Training = () => {
         <TrainingTabs activeTab={activeTab} setActiveTab={setActiveTab} />
         
         {activeTab === "config" && (
-          <ConfigurationTab config={trainingConfig} updateConfig={updateConfig} />
+          <ConfigurationTab
+            config={trainingConfig}
+            updateConfig={updateConfig}
+            datasets={datasets}
+            datasetsLoading={datasetsLoading}
+          />
         )}
 
         {activeTab === "monitoring" && (

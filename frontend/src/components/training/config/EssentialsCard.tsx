@@ -11,8 +11,15 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ConfigComponentProps } from '../types';
+import DatasetCombobox from '@/components/replay/DatasetCombobox';
+import { DatasetItem } from '@/lib/replayApi';
 
-const EssentialsCard: React.FC<ConfigComponentProps> = ({ config, updateConfig }) => {
+interface EssentialsCardProps extends ConfigComponentProps {
+  datasets: DatasetItem[];
+  datasetsLoading: boolean;
+}
+
+const EssentialsCard: React.FC<EssentialsCardProps> = ({ config, updateConfig, datasets, datasetsLoading }) => {
   return (
     <Card className="bg-slate-800/50 border-slate-700 rounded-xl">
       <CardHeader>
@@ -20,16 +27,17 @@ const EssentialsCard: React.FC<ConfigComponentProps> = ({ config, updateConfig }
       </CardHeader>
       <CardContent className="space-y-6">
         <div>
-          <Label htmlFor="dataset_repo_id" className="text-slate-300">
-            Dataset Repository ID *
-          </Label>
-          <Input
-            id="dataset_repo_id"
-            value={config.dataset_repo_id}
-            onChange={(e) => updateConfig('dataset_repo_id', e.target.value)}
-            placeholder="e.g., your-username/your-dataset"
-            className="bg-slate-900 border-slate-600 text-white rounded-lg"
-          />
+          <Label className="text-slate-300">Dataset Repository ID *</Label>
+          <div className="mt-1">
+            <DatasetCombobox
+              datasets={datasets}
+              loading={datasetsLoading}
+              value={config.dataset_repo_id || null}
+              onChange={(repoId) => {
+                if (repoId) updateConfig('dataset_repo_id', repoId);
+              }}
+            />
+          </div>
           <p className="text-xs text-slate-500 mt-1">
             HuggingFace Hub dataset repository ID
           </p>
