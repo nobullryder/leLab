@@ -60,6 +60,9 @@ class TrainingRequest(BaseModel):
     # Policy-specific
     policy_device: Optional[str] = "cuda"
     policy_use_amp: bool = False
+    # Hub upload (set by HfCloudJobRunner; not exposed in the form)
+    policy_push_to_hub: bool = False
+    policy_repo_id: Optional[str] = None
 
     # Optimizer
     optimizer_type: Optional[str] = "adam"
@@ -104,9 +107,11 @@ def build_training_command(request: TrainingRequest, output_dir: str) -> List[st
     if request.policy_device:
         cmd.extend(["--policy.device", request.policy_device])
     cmd.extend(["--policy.use_amp", "true" if request.policy_use_amp else "false"])
-    # LeRobot defaults push_to_hub=True and then demands --policy.repo_id.
-    # Keep training local by default; uploading is a deliberate action.
-    cmd.extend(["--policy.push_to_hub", "false"])
+    # LeRobot defaults push_to_hub=True and demands --policy.repo_id when so.
+    # Local jobs keep it off; HF Cloud jobs flip it on via the runner.
+    cmd.extend(["--policy.push_to_hub", "true" if request.policy_push_to_hub else "false"])
+    if request.policy_push_to_hub and request.policy_repo_id:
+        cmd.extend(["--policy.repo_id", request.policy_repo_id])
 
     # Logging / checkpointing
     cmd.extend(["--log_freq", str(request.log_freq)])
