@@ -68,7 +68,12 @@ const MonitoringStats: React.FC<MonitoringStatsProps> = ({
   }, [trainingStatus.current_step, trainingStatus.current_loss, trainingStatus.current_lr]);
 
   const progress = getProgressPercentage();
-  const stepLabel = `${trainingStatus.current_step.toLocaleString()} / ${trainingStatus.total_steps.toLocaleString()}`;
+  // Until tqdm fires its first progress line, total_steps is 0 — show
+  // "Training starting…" instead of a misleading 0/0 0% reading.
+  const isStarting = trainingStatus.training_active && trainingStatus.total_steps === 0;
+  const stepLabel = isStarting
+    ? 'Training starting…'
+    : `${trainingStatus.current_step.toLocaleString()} / ${trainingStatus.total_steps.toLocaleString()}`;
   const etaLabel =
     trainingStatus.eta_seconds != null ? formatTime(trainingStatus.eta_seconds) : '—';
 
@@ -99,7 +104,7 @@ const MonitoringStats: React.FC<MonitoringStatsProps> = ({
               style={{ width: `${progress}%` }}
             />
             <div className="absolute inset-0 flex items-center justify-center font-semibold text-white text-sm tabular-nums drop-shadow">
-              {progress.toFixed(1)}%
+              {isStarting ? 'warming up…' : `${progress.toFixed(1)}%`}
             </div>
           </div>
         </CardContent>

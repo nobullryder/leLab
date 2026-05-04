@@ -104,6 +104,17 @@ export async function getJobLogs(
   return body.logs;
 }
 
+export async function getJobLogFile(
+  baseUrl: string,
+  fetcher: Fetcher,
+  id: string,
+): Promise<LogLine[]> {
+  const r = await fetcher(`${baseUrl}/jobs/${id}/log-file`);
+  await expectOk(r, "Get job log file");
+  const body = await r.json();
+  return body.logs;
+}
+
 export async function startTrainingJob(
   baseUrl: string,
   fetcher: Fetcher,

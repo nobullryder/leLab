@@ -19,6 +19,7 @@ import {
   TrainingRequest,
   getJob,
   getJobLogs,
+  getJobLogFile,
   listJobs,
   startTrainingJob,
   stopJob,
@@ -236,6 +237,25 @@ const MonitoringMode: React.FC<{ jobId: string }> = ({ jobId }) => {
   const [error, setError] = useState<string | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const logContainerRef = useRef<HTMLDivElement>(null);
+
+  // Seed logs from the persistent on-disk file once on mount, so navigating
+  // away and back (or coming in fresh on a finished/interrupted job) shows
+  // the full log history. Polling /logs continues from this point — the
+  // backend drains the live queue in the same /log-file call so we don't
+  // double-display lines that were buffered when we landed.
+  useEffect(() => {
+    let cancelled = false;
+    getJobLogFile(baseUrl, fetchWithHeaders, jobId)
+      .then((seeded) => {
+        if (!cancelled && seeded.length > 0) setLogs(seeded);
+      })
+      .catch(() => {
+        // 404 or transient — fall through; live polling will fill in.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [baseUrl, fetchWithHeaders, jobId]);
 
   // Poll the job + its logs while running.
   useEffect(() => {

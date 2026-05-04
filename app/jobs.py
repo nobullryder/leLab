@@ -137,12 +137,18 @@ class LocalJobRunner:
     the underlying subprocess is bounded by this object's existence in memory.
     """
 
-    def __init__(self, metrics: TrainingMetrics) -> None:
+    def __init__(
+        self,
+        metrics: TrainingMetrics,
+        log_file_path: Optional["Path"] = None,
+    ) -> None:
         self._metrics = metrics
         self._process: Optional[subprocess.Popen] = None
         self._log_queue: "Queue[LogLine]" = Queue()
         self._monitor_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
+        self._log_file_path = log_file_path
+        self._log_file = None  # type: ignore[assignment]
 
     def start(
         self,
@@ -157,6 +163,12 @@ class LocalJobRunner:
         from .training import build_training_command  # avoid import cycle at module load
         cmd = build_training_command(config, output_dir)
         logger.info("Starting job %s: %s", job_id, " ".join(cmd))
+
+        # Open the persistent log sink (one JSON line per stdout line). Held
+        # open for the subprocess's lifetime so we don't reopen per write.
+        if self._log_file_path is not None:
+            self._log_file_path.parent.mkdir(parents=True, exist_ok=True)
+            self._log_file = self._log_file_path.open("a", buffering=1)
 
         # PYTHONUNBUFFERED makes the child's stdout flush per line. Without it
         # block-buffering hides log lines from our parser for many seconds.
@@ -222,15 +234,28 @@ class LocalJobRunner:
                 if not stripped:
                     continue
                 parse_metrics_into(stripped, self._metrics)
+                log_line = LogLine(timestamp=time.time(), message=stripped)
+                if self._log_file is not None:
+                    try:
+                        self._log_file.write(log_line.model_dump_json() + "\n")
+                    except Exception as exc:  # pragma: no cover — best-effort persist
+                        logger.exception("Error writing to log file: %s", exc)
                 # Cap queue so a chatty subprocess can't grow memory unbounded.
                 if self._log_queue.qsize() >= 1000:
                     try:
                         self._log_queue.get_nowait()
                     except Empty:
                         pass
-                self._log_queue.put(LogLine(timestamp=time.time(), message=stripped))
+                self._log_queue.put(log_line)
         except Exception as exc:
             logger.exception("Error reading subprocess stdout: %s", exc)
+        finally:
+            if self._log_file is not None:
+                try:
+                    self._log_file.close()
+                except Exception:
+                    pass
+                self._log_file = None
 
 
 import json
@@ -253,6 +278,10 @@ def _generate_job_id(policy_type: str, dataset_repo_id: str) -> str:
 
 def _job_dir(output_root: Path, job_id: str) -> Path:
     return output_root / job_id
+
+
+def _job_log_path(output_root: Path, job_id: str) -> Path:
+    return _job_dir(output_root, job_id) / "log.jsonl"
 
 
 def _job_meta_path(output_root: Path, job_id: str) -> Path:
@@ -336,7 +365,10 @@ class JobRegistry:
             self._records[job_id] = record
             self._persist(record, force=True)
 
-            runner = LocalJobRunner(record.metrics)
+            runner = LocalJobRunner(
+                record.metrics,
+                log_file_path=_job_log_path(self._output_root, job_id),
+            )
             try:
                 runner.start(job_id, config, lerobot_output_dir)
             except Exception as exc:
@@ -376,6 +408,31 @@ class JobRegistry:
         if runner is None:
             return []
         return runner.stream_log_lines()
+
+    def read_persisted_logs(self, job_id: str) -> List[LogLine]:
+        """Read all log lines that have been written to disk for this job.
+
+        Used by the frontend on Monitoring-page mount to seed the log panel
+        with history (e.g. after navigating away and back, or after a lelab
+        restart marked the job 'interrupted').
+        """
+        with self._lock:
+            if job_id not in self._records:
+                raise JobNotFoundError(job_id)
+        path = _job_log_path(self._output_root, job_id)
+        if not path.exists():
+            return []
+        out: List[LogLine] = []
+        with path.open() as f:
+            for raw in f:
+                raw = raw.strip()
+                if not raw:
+                    continue
+                try:
+                    out.append(LogLine.model_validate_json(raw))
+                except Exception:
+                    continue  # skip a malformed line rather than 500ing
+        return out
 
     def delete(self, job_id: str) -> None:
         with self._lock:

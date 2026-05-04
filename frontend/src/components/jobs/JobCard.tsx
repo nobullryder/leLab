@@ -33,13 +33,18 @@ const JobCard: React.FC<Props> = ({ job, onStop, onDelete }) => {
   const navigate = useNavigate();
   const present = statePresentation[job.state];
   const Icon = present.Icon;
+  const isRunning = job.state === "running";
+  // Until tqdm fires its first progress line we have no step counts; show
+  // "Starting…" instead of a misleading 0/0 0% bar.
+  const isStarting = isRunning && job.metrics.total_steps === 0;
   const progressPct =
     job.metrics.total_steps > 0
       ? Math.min(100, (job.metrics.current_step / job.metrics.total_steps) * 100)
       : 0;
 
-  const isRunning = job.state === "running";
-  const subtitle = isRunning
+  const subtitle = isStarting
+    ? "starting…"
+    : isRunning
     ? `started ${relativeTime(job.started_at)}`
     : job.ended_at != null
     ? `ended ${relativeTime(job.ended_at)}`
@@ -90,7 +95,7 @@ const JobCard: React.FC<Props> = ({ job, onStop, onDelete }) => {
             style={{ width: `${progressPct}%` }}
           />
           <div className="absolute inset-0 flex items-center justify-center text-xs font-semibold text-white tabular-nums drop-shadow">
-            {progressPct.toFixed(1)}%
+            {isStarting ? "Training starting…" : `${progressPct.toFixed(1)}%`}
           </div>
         </div>
       </CardContent>
