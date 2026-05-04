@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -38,13 +38,13 @@ from .teleoperating import (
 # Import our custom calibration functionality
 from .calibrating import CalibrationRequest, calibration_manager
 
-# Import our custom training functionality
-from .training import (
-    TrainingRequest,
-    handle_start_training,
-    handle_stop_training,
-    handle_training_status,
-    handle_training_logs,
+# Training is now job-based; see app/jobs.py.
+from .training import TrainingRequest
+from .jobs import (
+    job_registry,
+    JobAlreadyRunningError,
+    JobNotFoundError,
+    JobNotRunningError,
 )
 
 from .system import (
@@ -346,32 +346,59 @@ def get_dataset_info(request: DatasetInfoRequest):
 
 
 # ============================================================================
-# TRAINING ENDPOINTS
+# JOB ENDPOINTS
 # ============================================================================
 
 
-@app.post("/start-training")
-def start_training(request: TrainingRequest):
-    """Start a training session"""
-    return handle_start_training(request)
+@app.post("/jobs/training", status_code=201)
+def create_training_job(request: TrainingRequest):
+    try:
+        record = job_registry.start(request)
+    except JobAlreadyRunningError as exc:
+        raise HTTPException(status_code=409, detail=f"A training job is already running: {exc}")
+    return record
 
 
-@app.post("/stop-training")
-def stop_training():
-    """Stop the current training session"""
-    return handle_stop_training()
+@app.get("/jobs")
+def list_jobs(limit: int = 10):
+    return {"jobs": job_registry.list(limit=limit)}
 
 
-@app.get("/training-status")
-def training_status():
-    """Get the current training status"""
-    return handle_training_status()
+@app.get("/jobs/{job_id}")
+def get_job(job_id: str):
+    try:
+        return job_registry.get(job_id)
+    except JobNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
 
 
-@app.get("/training-logs")
-def training_logs():
-    """Get recent training logs"""
-    return handle_training_logs()
+@app.get("/jobs/{job_id}/logs")
+def get_job_logs(job_id: str):
+    try:
+        logs = job_registry.drain_logs(job_id)
+    except JobNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
+    return {"logs": logs}
+
+
+@app.post("/jobs/{job_id}/stop")
+def stop_job(job_id: str):
+    try:
+        return job_registry.stop(job_id)
+    except JobNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
+    except JobNotRunningError:
+        raise HTTPException(status_code=409, detail=f"Job {job_id!r} is not running")
+
+
+@app.delete("/jobs/{job_id}", status_code=204)
+def delete_job(job_id: str):
+    try:
+        job_registry.delete(job_id)
+    except JobNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
+    except JobNotRunningError:
+        raise HTTPException(status_code=409, detail=f"Job {job_id!r} is running; stop it first")
 
 
 # ============================================================================
