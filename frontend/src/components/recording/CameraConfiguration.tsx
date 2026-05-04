@@ -84,15 +84,49 @@ const CameraConfiguration: React.FC<CameraConfigurationProps> = ({
         available: boolean;
       }[];
 
-      // Match each cv2 index to a browser deviceId by AVFoundation
-      // localizedName (== MediaDeviceInfo.label on macOS, verbatim).
+      console.log(
+        "📷 Browser cameras:",
+        browserDevices.map((d) => d.label || "(no label)")
+      );
+      console.log(
+        "📷 Backend cameras:",
+        backendCams.map((c) => c.name)
+      );
+
+      // Browser's MediaDeviceInfo.label starts with AVFoundation's
+      // localizedName but Chrome often appends "(vendorId:productId)". Match
+      // by prefix / substring instead of strict equality.
+      const norm = (s: string) =>
+        s.toLowerCase().replace(/\s+/g, " ").trim();
+      const matchLabel = (
+        backendName: string,
+        used: Set<string>
+      ): { deviceId: string; label: string } | undefined => {
+        const target = norm(backendName);
+        if (!target) return undefined;
+        // Prefer exact, then "browser label starts with backend name", then either-contains.
+        const candidates = browserDevices.filter(
+          (d) => !used.has(d.deviceId) && d.label
+        );
+        return (
+          candidates.find((d) => norm(d.label) === target) ||
+          candidates.find((d) => norm(d.label).startsWith(target)) ||
+          candidates.find(
+            (d) => norm(d.label).includes(target) || target.includes(norm(d.label))
+          )
+        );
+      };
+
       const usedBrowserIds = new Set<string>();
       const merged: AvailableCamera[] = backendCams.map((cam) => {
         const label = cam.name || `Camera ${cam.index}`;
-        const matched = browserDevices.find(
-          (d) => d.label === label && !usedBrowserIds.has(d.deviceId)
-        );
-        if (matched) usedBrowserIds.add(matched.deviceId);
+        const matched = matchLabel(label, usedBrowserIds);
+        if (matched) {
+          usedBrowserIds.add(matched.deviceId);
+          console.log(`🔗 "${label}" → browser "${matched.label}"`);
+        } else {
+          console.warn(`⚠️ No browser match for backend camera "${label}"`);
+        }
         return {
           index: cam.index,
           deviceId: matched?.deviceId || "",
