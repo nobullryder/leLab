@@ -333,11 +333,25 @@ const Calibration = () => {
   };
 
   // Refresh the robot record when a calibration completes so the checklist
-  // flips to ✓ for the side that was just saved.
+  // flips to ✓ for the side that was just saved, and advance Device Type to
+  // the next still-incomplete side (or stay on the current side if both done).
   useEffect(() => {
-    if (calibrationStatus.status === "completed") {
-      fetchRobot();
-    }
+    if (calibrationStatus.status !== "completed") return;
+    (async () => {
+      const r = await fetchRobot();
+      if (!r) return;
+      const nextDevice = !r.leader_config
+        ? "teleop"
+        : !r.follower_config
+        ? "robot"
+        : "teleop";
+      setDeviceType(nextDevice);
+      setPort(
+        nextDevice === "teleop"
+          ? r.leader_port || ""
+          : r.follower_port || ""
+      );
+    })();
   }, [calibrationStatus.status, fetchRobot]);
 
   const handlePortDetection = () => {
