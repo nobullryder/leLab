@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
@@ -149,28 +149,6 @@ const Recording = () => {
     optimisticPhase,
   ]);
 
-  useEffect(() => {
-    if (!recordingSessionStarted || !backendStatus) return;
-
-    const onKeyDown = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
-        return;
-      }
-      if (e.key === " " || e.code === "Space") {
-        e.preventDefault();
-        handleExitEarly();
-      } else if (e.key === "r" || e.key === "R") {
-        handleRerecordEpisode();
-      } else if (e.key === "Escape") {
-        handleStopRecording();
-      }
-    };
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [recordingSessionStarted, backendStatus, handleExitEarly, handleRerecordEpisode, handleStopRecording]);
-
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -214,6 +192,7 @@ const Recording = () => {
 
   const handleExitEarly = useCallback(async () => {
     if (!backendStatus?.available_controls.exit_early) return;
+    if (optimisticPhase !== null) return;
 
     const realPhase = backendStatus.current_phase as Phase;
     const next: Phase | null =
@@ -246,7 +225,7 @@ const Recording = () => {
         variant: "destructive",
       });
     }
-  }, [backendStatus, baseUrl, fetchWithHeaders, toast]);
+  }, [backendStatus, optimisticPhase, baseUrl, fetchWithHeaders, toast]);
 
   const handleRerecordEpisode = useCallback(async () => {
     if (!backendStatus?.available_controls.rerecord_episode) return;
@@ -282,6 +261,7 @@ const Recording = () => {
   }, [backendStatus, baseUrl, fetchWithHeaders, toast]);
 
   const handleStopRecording = useCallback(async () => {
+    if (!backendStatus?.available_controls.stop_recording) return;
     try {
       await fetchWithHeaders(`${baseUrl}/stop-recording`, {
         method: "POST",
@@ -310,6 +290,33 @@ const Recording = () => {
       });
     }
   }, [backendStatus, baseUrl, fetchWithHeaders, toast, recordingConfig, navigate]);
+
+  const handlersRef = useRef({ handleExitEarly, handleRerecordEpisode, handleStopRecording });
+  useEffect(() => {
+    handlersRef.current = { handleExitEarly, handleRerecordEpisode, handleStopRecording };
+  });
+
+  useEffect(() => {
+    if (!recordingSessionStarted || !backendStatus) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
+        return;
+      }
+      if (e.key === " " || e.code === "Space") {
+        e.preventDefault();
+        handlersRef.current.handleExitEarly();
+      } else if (e.key === "r" || e.key === "R") {
+        handlersRef.current.handleRerecordEpisode();
+      } else if (e.key === "Escape") {
+        handlersRef.current.handleStopRecording();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [recordingSessionStarted, backendStatus]);
 
   if (!recordingConfig) {
     return (
@@ -465,7 +472,9 @@ const Recording = () => {
           >
             <PrimaryIcon className="w-5 h-5 mr-2" />
             {primaryLabel}
-            <span className="ml-3 px-2 py-0.5 rounded text-xs font-mono bg-black/30 text-white/70">SPACE</span>
+            {currentPhase !== "completed" && (
+              <span className="ml-3 px-2 py-0.5 rounded text-xs font-mono bg-black/30 text-white/70">SPACE</span>
+            )}
           </Button>
 
           {currentPhase === "completed" && (
