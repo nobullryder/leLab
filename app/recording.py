@@ -29,6 +29,7 @@ recording_thread = None
 recording_events = None  # Events dict for controlling recording session
 recording_config = None  # Store recording configuration
 recording_start_time = None  # Track when recording started
+session_end_elapsed_seconds = None  # Final session duration after the run ends
 current_episode = 1  # Track current episode number
 saved_episodes = 0  # Track how many episodes have been saved
 current_phase = "preparing"  # Track current phase: "preparing", "recording", "resetting", "completed"
@@ -129,7 +130,7 @@ def create_record_config(request: RecordingRequest) -> RecordConfig:
 
 def handle_start_recording(request: RecordingRequest, websocket_manager=None) -> Dict[str, Any]:
     """Handle start recording request by using the existing record() function"""
-    global recording_active, recording_thread, recording_events, recording_config, recording_start_time, current_episode, saved_episodes, current_phase, phase_start_time
+    global recording_active, recording_thread, recording_events, recording_config, recording_start_time, session_end_elapsed_seconds, current_episode, saved_episodes, current_phase, phase_start_time
 
     if recording_active:
         return {"success": False, "message": "Recording is already active"}
@@ -141,6 +142,7 @@ def handle_start_recording(request: RecordingRequest, websocket_manager=None) ->
     recording_events = None
     recording_config = None
     recording_start_time = None
+    session_end_elapsed_seconds = None
     current_episode = 1
     saved_episodes = 0
     current_phase = "preparing"
@@ -177,7 +179,7 @@ def handle_start_recording(request: RecordingRequest, websocket_manager=None) ->
 
         # Start recording in a separate thread
         def recording_worker():
-            global recording_active, recording_start_time, current_phase, phase_start_time, current_episode, saved_episodes
+            global recording_active, recording_start_time, session_end_elapsed_seconds, current_phase, phase_start_time, current_episode, saved_episodes
             recording_active = True
             recording_start_time = time.time()  # Set start time when recording actually begins
             
@@ -209,17 +211,22 @@ def handle_start_recording(request: RecordingRequest, websocket_manager=None) ->
                 logger.error(f"Full traceback: {traceback.format_exc()}")
                 
                 # 🚨 CRITICAL: Set phase to "error" instead of "completed" to distinguish failures
+                if recording_start_time:
+                    session_end_elapsed_seconds = int(time.time() - recording_start_time)
                 current_phase = "error"
                 recording_active = False
                 recording_start_time = None
                 phase_start_time = None
-                
+
                 return {"success": False, "error": str(e)}
             finally:
                 # Only set to completed if no error occurred
                 if current_phase != "error":
                     current_phase = "completed"
-                    
+
+                if recording_start_time:
+                    session_end_elapsed_seconds = int(time.time() - recording_start_time)
+
                 recording_active = False
                 recording_start_time = None
                 phase_start_time = None
@@ -380,23 +387,25 @@ def handle_recording_status() -> Dict[str, Any]:
         status["current_episode"] = current_episode
         status["total_episodes"] = recording_config.num_episodes
         status["saved_episodes"] = saved_episodes  # Track completed episodes
-        
+
         # Add session start time if available
         if recording_start_time:
             status["session_start_time"] = recording_start_time
             status["session_elapsed_seconds"] = int(time.time() - recording_start_time)
-        
+
         # Add phase timing information
         if phase_start_time:
             status["phase_start_time"] = phase_start_time
             status["phase_elapsed_seconds"] = int(time.time() - phase_start_time)
-            
+
             # Add phase time limits
             if current_phase == "recording":
                 status["phase_time_limit_s"] = recording_config.episode_time_s
             elif current_phase == "resetting":
                 status["phase_time_limit_s"] = recording_config.reset_time_s
-    
+    elif session_end_elapsed_seconds is not None:
+        status["session_elapsed_seconds"] = session_end_elapsed_seconds
+
     return status
 
 
