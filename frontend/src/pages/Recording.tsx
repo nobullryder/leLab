@@ -506,7 +506,11 @@ const Recording = () => {
                   <MoreHorizontal className="w-5 h-5" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="bg-gray-900 border-gray-700 text-white">
+              <DropdownMenuContent
+                align="end"
+                onCloseAutoFocus={(e) => e.preventDefault()}
+                className="bg-gray-900 border-gray-700 text-white"
+              >
                 <DropdownMenuItem
                   onClick={handleRerecordEpisode}
                   disabled={!backendStatus.available_controls.rerecord_episode}
