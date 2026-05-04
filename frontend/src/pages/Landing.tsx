@@ -32,7 +32,6 @@ const Landing = () => {
 
   // Recording modal state
   const [showRecordingModal, setShowRecordingModal] = useState(false);
-  const [selectedRobotName, setSelectedRobotName] = useState("");
   const [datasetName, setDatasetName] = useState("");
   const [singleTask, setSingleTask] = useState("");
   const [numEpisodes, setNumEpisodes] = useState(5);
@@ -80,15 +79,24 @@ const Landing = () => {
   const handleInferenceClick = () => navigate("/inference");
 
   const handleStartRecording = async () => {
-    const robot = visibleRecords.find((r) => r.name === selectedRobotName);
-    if (!robot) {
+    if (visibleRecords.length === 0) {
       toast({
-        title: "No robot selected",
-        description: "Pick a robot from the list.",
+        title: "No robot configured",
+        description: "Add and configure a robot on the Landing page first.",
         variant: "destructive",
       });
       return;
     }
+    if (visibleRecords.length > 1) {
+      toast({
+        title: "Multiple robots not supported",
+        description:
+          "Multiple robot configurations are not supported yet. Hide all but one robot tile.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const robot = visibleRecords[0];
     if (!robot.is_clean) {
       toast({
         title: "Robot not ready",
@@ -217,8 +225,6 @@ const Landing = () => {
         open={showRecordingModal}
         onOpenChange={handleRecordingModalClose}
         robots={visibleRecords}
-        selectedRobotName={selectedRobotName}
-        setSelectedRobotName={setSelectedRobotName}
         datasetName={datasetName}
         setDatasetName={setDatasetName}
         singleTask={singleTask}

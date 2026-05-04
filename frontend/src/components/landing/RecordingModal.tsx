@@ -3,19 +3,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { AlertTriangle, CheckCircle } from "lucide-react";
 import CameraConfiguration, {
   CameraConfig,
 } from "@/components/recording/CameraConfiguration";
@@ -26,8 +21,6 @@ interface RecordingModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   robots: RobotRecord[];
-  selectedRobotName: string;
-  setSelectedRobotName: (value: string) => void;
   datasetName: string;
   setDatasetName: (value: string) => void;
   singleTask: string;
@@ -44,8 +37,6 @@ const RecordingModal: React.FC<RecordingModalProps> = ({
   open,
   onOpenChange,
   robots,
-  selectedRobotName,
-  setSelectedRobotName,
   datasetName,
   setDatasetName,
   singleTask,
@@ -58,6 +49,10 @@ const RecordingModal: React.FC<RecordingModalProps> = ({
   releaseStreamsRef,
 }) => {
   const { auth } = useHfAuth();
+
+  const robot = robots.length === 1 ? robots[0] : null;
+  const tooMany = robots.length > 1;
+  const canStart = !!robot && robot.is_clean;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -82,41 +77,37 @@ const RecordingModal: React.FC<RecordingModalProps> = ({
               <h3 className="text-lg font-semibold text-white border-b border-gray-700 pb-2">
                 Robot Configuration
               </h3>
-              {robots.length === 0 ? (
-                <p className="text-sm text-amber-400/90">
-                  No robots on the Landing page yet. Add and configure a robot
-                  before recording.
-                </p>
+              {tooMany ? (
+                <Alert className="bg-amber-900/40 border-amber-700 text-amber-100">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>
+                    <strong>Warning:</strong> Multiple robot configurations are
+                    not supported yet. Hide all but one robot tile on the
+                    Landing page to record.
+                  </AlertDescription>
+                </Alert>
+              ) : robots.length === 0 ? (
+                <Alert className="bg-amber-900/40 border-amber-700 text-amber-100">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>
+                    Add and configure a robot on the Landing page before
+                    recording.
+                  </AlertDescription>
+                </Alert>
+              ) : !robot!.is_clean ? (
+                <Alert className="bg-amber-900/40 border-amber-700 text-amber-100">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>
+                    <strong>{robot!.name}</strong> is missing a calibration.
+                    Configure it before recording.
+                  </AlertDescription>
+                </Alert>
               ) : (
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium text-gray-300">
-                    Robot
-                  </Label>
-                  <Select
-                    value={selectedRobotName}
-                    onValueChange={setSelectedRobotName}
-                  >
-                    <SelectTrigger className="bg-gray-800 border-gray-700 text-white">
-                      <SelectValue placeholder="Select a robot" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-gray-800 border-gray-700">
-                      {robots.map((r) => (
-                        <SelectItem
-                          key={r.name}
-                          value={r.name}
-                          disabled={!r.is_clean}
-                          className="text-white hover:bg-gray-700"
-                        >
-                          {r.name}
-                          {!r.is_clean && (
-                            <span className="text-amber-400/80 ml-2">
-                              (needs calibration)
-                            </span>
-                          )}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <div className="flex items-center gap-2 text-sm">
+                  <CheckCircle className="w-4 h-4 text-green-400" />
+                  <span className="text-slate-200">
+                    Recording with <strong>{robot!.name}</strong>
+                  </span>
                 </div>
               )}
             </div>
@@ -201,7 +192,8 @@ const RecordingModal: React.FC<RecordingModalProps> = ({
           <div className="flex flex-col sm:flex-row gap-4 justify-center pt-4">
             <Button
               onClick={onStart}
-              className="w-full sm:w-auto bg-red-500 hover:bg-red-600 text-white px-10 py-6 text-lg transition-all shadow-md shadow-red-500/30 hover:shadow-lg hover:shadow-red-500/40"
+              disabled={!canStart}
+              className="w-full sm:w-auto bg-red-500 hover:bg-red-600 text-white px-10 py-6 text-lg transition-all shadow-md shadow-red-500/30 hover:shadow-lg hover:shadow-red-500/40 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               Start Recording
             </Button>
