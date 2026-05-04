@@ -35,6 +35,7 @@ interface AvailableCamera {
   deviceId: string;
   name: string;
   available: boolean;
+  thumbnail?: string;
 }
 
 const CameraConfiguration: React.FC<CameraConfigurationProps> = ({
@@ -96,6 +97,7 @@ const CameraConfiguration: React.FC<CameraConfigurationProps> = ({
           index: number;
           name?: string;
           available: boolean;
+          thumbnail?: string;
         }[];
 
         const merged: AvailableCamera[] = backendCams.map((cam, i) => ({
@@ -103,6 +105,7 @@ const CameraConfiguration: React.FC<CameraConfigurationProps> = ({
           deviceId: browserDevices[i]?.deviceId || `fallback_${cam.index}`,
           name: browserDevices[i]?.label || cam.name || `Camera ${cam.index}`,
           available: cam.available,
+          thumbnail: cam.thumbnail,
         }));
         setAvailableCameras(merged);
 
@@ -419,21 +422,37 @@ const CameraConfiguration: React.FC<CameraConfigurationProps> = ({
                 />
               </SelectTrigger>
               <SelectContent className="bg-gray-800 border-gray-700">
-                {availableCameras.map((camera) => (
-                  <SelectItem
-                    key={camera.index}
-                    value={camera.index.toString()}
-                    className="text-white hover:bg-gray-700"
-                    disabled={
-                      !camera.available ||
-                      cameras.some((cam) => cam.camera_index === camera.index)
-                    }
-                  >
-                    {camera.name} (Index {camera.index})
-                    {cameras.some((cam) => cam.camera_index === camera.index) &&
-                      " (Already added)"}
-                  </SelectItem>
-                ))}
+                {availableCameras.map((camera) => {
+                  const alreadyAdded = cameras.some(
+                    (cam) => cam.camera_index === camera.index
+                  );
+                  return (
+                    <SelectItem
+                      key={camera.index}
+                      value={camera.index.toString()}
+                      className="text-white hover:bg-gray-700"
+                      disabled={!camera.available || alreadyAdded}
+                    >
+                      <div className="flex items-center gap-3">
+                        {camera.thumbnail ? (
+                          <img
+                            src={camera.thumbnail}
+                            alt={`Index ${camera.index}`}
+                            className="w-16 h-12 object-cover rounded border border-gray-700"
+                          />
+                        ) : (
+                          <div className="w-16 h-12 rounded border border-gray-700 bg-gray-900 flex items-center justify-center text-[10px] text-gray-500">
+                            no preview
+                          </div>
+                        )}
+                        <span>
+                          Index {camera.index}
+                          {alreadyAdded && " (already added)"}
+                        </span>
+                      </div>
+                    </SelectItem>
+                  );
+                })}
               </SelectContent>
             </Select>
           </div>

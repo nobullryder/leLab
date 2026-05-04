@@ -516,28 +516,57 @@ def get_available_ports():
 
 @app.get("/available-cameras")
 def get_available_cameras():
-    """Get all available cameras"""
+    """Get all available cameras with a JPEG thumbnail per OpenCV index.
+
+    The thumbnail is the source of truth for camera identity: the frontend
+    shows it so the user picks an index by what the *backend* actually sees,
+    avoiding the mismatch between browser enumeration order and OpenCV's
+    AVFoundation/V4L2 indexing.
+    """
     try:
-        # Try to detect cameras using OpenCV
         import cv2
+        import base64
         cameras = []
-        
-        # Test up to 10 camera indices
+
         for i in range(10):
             cap = cv2.VideoCapture(i)
-            if cap.isOpened():
-                ret, frame = cap.read()
-                if ret:
-                    cameras.append({
-                        "index": i,
-                        "name": f"Camera {i}",
-                        "available": True,
-                        "width": int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
-                        "height": int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
-                        "fps": int(cap.get(cv2.CAP_PROP_FPS)),
-                    })
+            if not cap.isOpened():
                 cap.release()
-            
+                continue
+
+            # First read often returns a blank/garbage frame on warmup; try a few.
+            frame = None
+            for _ in range(5):
+                ret, candidate = cap.read()
+                if ret and candidate is not None:
+                    frame = candidate
+                    break
+
+            if frame is None:
+                cap.release()
+                continue
+
+            entry = {
+                "index": i,
+                "name": f"Camera {i}",
+                "available": True,
+                "width": int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
+                "height": int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
+                "fps": int(cap.get(cv2.CAP_PROP_FPS)),
+            }
+
+            try:
+                small = cv2.resize(frame, (160, 120))
+                ok, buf = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                if ok:
+                    encoded = base64.b64encode(buf.tobytes()).decode("ascii")
+                    entry["thumbnail"] = f"data:image/jpeg;base64,{encoded}"
+            except Exception as thumb_err:
+                logger.warning(f"Thumbnail capture failed for camera {i}: {thumb_err}")
+
+            cameras.append(entry)
+            cap.release()
+
         return {"status": "success", "cameras": cameras}
     except ImportError:
         # OpenCV not available, return empty list
