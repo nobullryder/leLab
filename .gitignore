@@ -62,6 +62,7 @@ yarn-error.log*
 # Local dev / tool state
 .claude/
 .playwright-mcp/
+.superpowers/
 outputs/
 
 # Self-signed dev certs (regenerate per HTTPS_SETUP.md)
