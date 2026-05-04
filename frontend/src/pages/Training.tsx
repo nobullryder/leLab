@@ -55,7 +55,6 @@ const Training = () => {
     log_freq: 250,
     save_freq: 1000,
     save_checkpoint: true,
-    output_dir: "outputs/train",
     resume: false,
     wandb_enable: false,
     wandb_mode: "online",

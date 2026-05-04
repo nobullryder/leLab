@@ -1,7 +1,9 @@
 import logging
+import re
 import subprocess
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 from pydantic import BaseModel
@@ -10,6 +12,21 @@ import queue
 import os
 import signal
 import psutil
+
+DEFAULT_OUTPUT_DIR = "outputs/train"
+_SLUG_RE = re.compile(r"[^a-zA-Z0-9._-]+")
+
+
+def _generate_output_dir(policy_type: str, dataset_repo_id: str) -> str:
+    """Build a sortable, collision-free path under outputs/train/.
+
+    LeRobot refuses to write into an existing directory, so each run needs a
+    unique leaf. Timestamp + policy + dataset slug makes runs discoverable on
+    disk for later inference without needing a metadata DB.
+    """
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    dataset_slug = _SLUG_RE.sub("_", dataset_repo_id).strip("_") or "dataset"
+    return f"{DEFAULT_OUTPUT_DIR}/{policy_type}_{dataset_slug}_{timestamp}"
 
 logger = logging.getLogger(__name__)
 
@@ -220,8 +237,13 @@ class TrainingManager:
         cmd.extend(["--eval_freq", str(request.eval_freq)])
         cmd.extend(["--save_checkpoint", "true" if request.save_checkpoint else "false"])
 
-        # Output configuration
-        cmd.extend(["--output_dir", request.output_dir])
+        # Output configuration. Auto-generate a unique sub-path under
+        # outputs/train/ when the request carries the default value, so two
+        # runs in a row don't collide on LeRobot's "directory exists" guard.
+        output_dir = request.output_dir
+        if not output_dir or output_dir == DEFAULT_OUTPUT_DIR:
+            output_dir = _generate_output_dir(request.policy_type, request.dataset_repo_id)
+        cmd.extend(["--output_dir", output_dir])
         cmd.extend(["--resume", "true" if request.resume else "false"])
         if request.job_name:
             cmd.extend(["--job_name", request.job_name])

@@ -249,30 +249,6 @@ const AdvancedCard: React.FC<ConfigComponentProps> = ({ config, updateConfig }) 
                 />
               </div>
             </div>
-            <div>
-              <Label htmlFor="output_dir" className="text-slate-300">
-                Output Directory
-              </Label>
-              <Input
-                id="output_dir"
-                value={config.output_dir}
-                onChange={(e) => updateConfig('output_dir', e.target.value)}
-                className="bg-slate-900 border-slate-600 text-white rounded-lg"
-              />
-            </div>
-            <div>
-              <Label htmlFor="job_name" className="text-slate-300">
-                Job Name (optional)
-              </Label>
-              <Input
-                id="job_name"
-                value={config.job_name || ''}
-                onChange={(e) =>
-                  updateConfig('job_name', e.target.value || undefined)
-                }
-                className="bg-slate-900 border-slate-600 text-white rounded-lg"
-              />
-            </div>
             <div className="flex items-center space-x-3">
               <Switch
                 id="save_checkpoint"

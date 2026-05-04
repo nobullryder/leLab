@@ -17,9 +17,7 @@ export interface TrainingConfig {
   save_checkpoint: boolean;
 
   // Output configuration
-  output_dir: string;
   resume: boolean;
-  job_name?: string;
 
   // Weights & Biases
   wandb_enable: boolean;
