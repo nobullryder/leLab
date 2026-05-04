@@ -230,6 +230,9 @@ class TrainingManager:
         if request.policy_device:
             cmd.extend(["--policy.device", request.policy_device])
         cmd.extend(["--policy.use_amp", "true" if request.policy_use_amp else "false"])
+        # LeRobot defaults push_to_hub=True and then demands --policy.repo_id.
+        # Keep training local by default; uploading is a deliberate action.
+        cmd.extend(["--policy.push_to_hub", "false"])
 
         # Logging and checkpointing
         cmd.extend(["--log_freq", str(request.log_freq)])
