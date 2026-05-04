@@ -296,8 +296,10 @@ const Recording = () => {
     handlersRef.current = { handleExitEarly, handleRerecordEpisode, handleStopRecording };
   });
 
+  const sessionReady = recordingSessionStarted && backendStatus !== null;
+
   useEffect(() => {
-    if (!recordingSessionStarted || !backendStatus) return;
+    if (!sessionReady) return;
 
     const onKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -316,7 +318,7 @@ const Recording = () => {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [recordingSessionStarted, backendStatus]);
+  }, [sessionReady]);
 
   if (!recordingConfig) {
     return (
