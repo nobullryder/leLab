@@ -31,7 +31,7 @@ LEROBOT_IMAGE = "huggingface/lerobot-gpu:latest"
 # Sent verbatim as the value of `python -c '...'`. Anything after `--` in
 # the command argv is forwarded to the trainer.
 WRAPPER_SOURCE = r'''
-import os, re, sys, time, threading, subprocess
+import os, re, sys, threading, subprocess
 from pathlib import Path
 from huggingface_hub import HfApi
 
@@ -64,7 +64,7 @@ seen = set()
 stop_event = threading.Event()
 
 
-def _scan_and_upload(final=False):
+def _scan_and_upload():
     root = Path(output_dir) / "checkpoints"
     if not root.is_dir():
         return
@@ -78,7 +78,6 @@ def _scan_and_upload(final=False):
             continue
         if entry.name in seen:
             continue
-        # Final pass: re-upload anyway in case earlier upload was partial.
         try:
             api.upload_folder(
                 folder_path=str(entry),
@@ -113,7 +112,7 @@ finally:
     stop_event.set()
     # One final pass picks up any checkpoint saved in the last 15s window.
     try:
-        _scan_and_upload(final=True)
+        _scan_and_upload()
     except Exception as exc:
         print(f"[wrapper] final scan error: {exc}", flush=True)
 
