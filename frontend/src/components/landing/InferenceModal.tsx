@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { AlertTriangle, CheckCircle, Loader2, Play } from "lucide-react";
+import { AlertTriangle, CheckCircle, Loader2, Play, VideoOff } from "lucide-react";
 import { RobotRecord } from "@/hooks/useRobots";
 import { useApi } from "@/contexts/ApiContext";
 import { useToast } from "@/hooks/use-toast";
@@ -34,8 +34,68 @@ import CheckpointDropdown from "@/components/jobs/CheckpointDropdown";
 interface AvailableCamera {
   index: number;
   name: string;
+  deviceId: string;
   available: boolean;
 }
+
+const CameraPreview: React.FC<{ deviceId: string; paused: boolean }> = ({
+  deviceId,
+  paused,
+}) => {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    if (paused || !deviceId) {
+      if (!deviceId) setError(true);
+      return;
+    }
+    let cancelled = false;
+    let stream: MediaStream | null = null;
+    setError(false);
+    (async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { deviceId: { exact: deviceId } },
+        });
+        if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play().catch(() => {});
+        }
+      } catch {
+        setError(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (stream) stream.getTracks().forEach((t) => t.stop());
+    };
+  }, [deviceId, paused]);
+
+  if (paused || error || !deviceId) {
+    return (
+      <div className="w-32 h-24 bg-gray-800 rounded border border-gray-700 flex flex-col items-center justify-center">
+        <VideoOff className="w-5 h-5 text-gray-500 mb-1" />
+        <span className="text-[10px] text-gray-500">
+          {paused ? "Released" : "No preview"}
+        </span>
+      </div>
+    );
+  }
+  return (
+    <video
+      ref={videoRef}
+      autoPlay
+      muted
+      playsInline
+      className="w-32 h-24 object-cover rounded border border-gray-700 bg-black"
+    />
+  );
+};
 
 interface Props {
   open: boolean;
@@ -94,19 +154,66 @@ const InferenceModal: React.FC<Props> = ({
     };
   }, [open, baseUrl, fetchWithHeaders, jobId]);
 
-  // Load the user's available cameras when modal opens.
+  // Load the user's available cameras when the modal opens, and merge each
+  // backend cv2 index with the matching browser deviceId so we can render a
+  // live preview alongside the bound dropdowns.
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    fetchWithHeaders(`${baseUrl}/available-cameras`)
-      .then((r) => r.json())
-      .then((body) => {
-        if (cancelled) return;
-        setAvailableCameras(body.cameras ?? []);
-      })
-      .catch(() => {
+    (async () => {
+      try {
+        // Need a permission grant before enumerateDevices() returns labels.
+        try {
+          const probe = await navigator.mediaDevices.getUserMedia({ video: true });
+          probe.getTracks().forEach((t) => t.stop());
+        } catch {
+          // ignore — we'll still try to enumerate, just without labels
+        }
+        const browserDevices = (await navigator.mediaDevices.enumerateDevices())
+          .filter((d) => d.kind === "videoinput")
+          .map((d) => ({ deviceId: d.deviceId, label: d.label }));
+        const r = await fetchWithHeaders(`${baseUrl}/available-cameras`);
+        if (!r.ok) {
+          if (!cancelled) setAvailableCameras([]);
+          return;
+        }
+        const body = await r.json();
+        const backend: { index: number; name?: string; available: boolean }[] =
+          body.cameras ?? [];
+        const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+        const used = new Set<string>();
+        const merged: AvailableCamera[] = backend.map((cam) => {
+          const label = cam.name || `Camera ${cam.index}`;
+          const target = norm(label);
+          const candidate =
+            browserDevices.find(
+              (d) => !used.has(d.deviceId) && d.label && norm(d.label) === target,
+            ) ||
+            browserDevices.find(
+              (d) =>
+                !used.has(d.deviceId) &&
+                d.label &&
+                norm(d.label).startsWith(target),
+            ) ||
+            browserDevices.find(
+              (d) =>
+                !used.has(d.deviceId) &&
+                d.label &&
+                (norm(d.label).includes(target) || target.includes(norm(d.label))),
+            );
+          if (candidate) used.add(candidate.deviceId);
+          return {
+            index: cam.index,
+            name: label,
+            deviceId: candidate?.deviceId ?? "",
+            available: cam.available,
+          };
+        });
+        if (!cancelled) setAvailableCameras(merged);
+      } catch {
         if (!cancelled) setAvailableCameras([]);
-      });
+      }
+    })();
     return () => {
       cancelled = true;
     };
@@ -171,7 +278,11 @@ const InferenceModal: React.FC<Props> = ({
 
   const handleStart = async () => {
     if (!robot || selectedRef == null || !policyConfig) return;
+    // Setting submitting=true makes every CameraPreview drop its
+    // browser stream — required so the rollout subprocess can open the
+    // same camera index via OpenCV without colliding on the device.
     setSubmitting(true);
+    await new Promise((r) => setTimeout(r, 300));
     const cameraDict: Record<string, {
       type: string; camera_index?: number; width: number; height: number; fps?: number;
     }> = {};
@@ -203,7 +314,7 @@ const InferenceModal: React.FC<Props> = ({
         description: e instanceof Error ? e.message : String(e),
         variant: "destructive",
       });
-    } finally {
+      // Failure: bring the previews back so the user can adjust.
       setSubmitting(false);
     }
   };
@@ -347,6 +458,10 @@ const InferenceModal: React.FC<Props> = ({
                 {expectedCameraNames.map((name) => {
                   const dims = policyConfig.image_features[name];
                   const value = cameraBindings[name];
+                  const bound =
+                    value != null
+                      ? availableCameras.find((c) => c.index === value)
+                      : undefined;
                   return (
                     <div key={name} className="flex items-center gap-3">
                       <div className="flex-1">
@@ -381,6 +496,7 @@ const InferenceModal: React.FC<Props> = ({
                           )}
                         </SelectContent>
                       </Select>
+                      <CameraPreview deviceId={bound?.deviceId ?? ""} paused={submitting} />
                     </div>
                   );
                 })}
