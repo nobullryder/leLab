@@ -425,7 +425,28 @@ const MonitoringMode: React.FC<{ jobId: string }> = ({ jobId }) => {
               <ArrowLeft className="w-4 h-4 mr-2" /> Jobs
             </Button>
             <div>
-              <h1 className="text-xl font-semibold text-white">{job.name}</h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-xl font-semibold text-white">{job.name}</h1>
+                {job.runner === "hf_cloud" ? (
+                  <span className="text-xs px-2 py-0.5 rounded bg-amber-900/40 text-amber-200 border border-amber-700">
+                    HF · {job.hf_flavor ?? "cloud"}
+                  </span>
+                ) : (
+                  <span className="text-xs px-2 py-0.5 rounded bg-slate-700 text-slate-200 border border-slate-600">
+                    Local
+                  </span>
+                )}
+                {job.runner === "hf_cloud" && job.hf_repo_id && (
+                  <a
+                    href={`https://huggingface.co/${job.hf_repo_id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs text-amber-300 hover:text-amber-200 underline"
+                  >
+                    View on Hub ↗
+                  </a>
+                )}
+              </div>
               <p className="text-xs text-slate-400">
                 {job.state}
                 {job.error_message ? ` — ${job.error_message}` : ""}
