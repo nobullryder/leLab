@@ -642,7 +642,7 @@ class JobRegistry:
         Local jobs: scan <output_dir>/checkpoints/<step>/pretrained_model/
         for valid checkpoint dirs. The 'last' symlink is ignored — we sort
         by step and the latest is just max(step).
-        Cloud jobs: handled in a later task; raises for now.
+        Cloud jobs: handled in a later task; returns [] for now.
         """
         with self._lock:
             record = self._records.get(job_id)
