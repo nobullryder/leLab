@@ -83,16 +83,103 @@ class HfCloudJobRunner:
         )
         self._hf_job_id = job.id
 
-        # Log-tailing thread is started in Task 5.
+        self._tail_thread = threading.Thread(
+            target=self._tail_loop, name=f"hf-job-{job.id}-logs", daemon=True
+        )
+        self._tail_thread.start()
+
+    def _tail_loop(self) -> None:
+        """Consume HfApi.fetch_job_logs until it returns. Tee each line to
+        the log file and the in-memory queue, and update metrics inline.
+
+        On disconnect, retry up to 3 times with exponential backoff. After
+        that, exit the loop; the registry watchdog will catch the eventual
+        terminal state via inspect_job.
+        """
+        assert self._hf_job_id is not None
+        try:
+            retries = 0
+            while not self._stop_event.is_set():
+                try:
+                    for raw in self._api.fetch_job_logs(self._hf_job_id):
+                        if self._stop_event.is_set():
+                            return
+                        stripped = raw.rstrip()
+                        if not stripped:
+                            continue
+                        parse_metrics_into(stripped, self._metrics)
+                        log_line = LogLine(timestamp=time.time(), message=stripped)
+                        if self._log_file is not None:
+                            try:
+                                self._log_file.write(log_line.model_dump_json() + "\n")
+                            except Exception as exc:  # pragma: no cover
+                                logger.exception("Error writing HF log: %s", exc)
+                        if self._log_queue.qsize() >= 1000:
+                            try:
+                                self._log_queue.get_nowait()
+                            except Empty:
+                                pass
+                        self._log_queue.put(log_line)
+                    # Generator returned cleanly — job ended.
+                    return
+                except Exception as exc:
+                    retries += 1
+                    if retries > 3:
+                        logger.warning(
+                            "HF log tail gave up after 3 retries for job %s: %s",
+                            self._hf_job_id, exc,
+                        )
+                        return
+                    logger.info("HF log tail disconnected (retry %d/3): %s",
+                                retries, exc)
+                    self._stop_event.wait(2 ** retries)
+        finally:
+            if self._log_file is not None:
+                try:
+                    self._log_file.close()
+                except Exception:
+                    pass
+                self._log_file = None
 
     def stop(self) -> None:
-        raise NotImplementedError("filled in Task 5")
+        if self._hf_job_id is None:
+            return
+        self._stop_event.set()
+        try:
+            self._api.cancel_job(self._hf_job_id)
+        except Exception as exc:
+            # Already-completed jobs may 404; that's fine. Watchdog will
+            # finalise on its next tick.
+            logger.info("cancel_job(%s) ignored: %s", self._hf_job_id, exc)
 
     def is_running(self) -> bool:
-        raise NotImplementedError("filled in Task 5")
+        if self._hf_job_id is None:
+            return False
+        try:
+            info = self._api.inspect_job(self._hf_job_id)
+        except Exception as exc:
+            logger.warning("inspect_job failed for %s: %s", self._hf_job_id, exc)
+            return False
+        # Status values from huggingface_hub: QUEUED, RUNNING, COMPLETED,
+        # FAILED, CANCELLED. We treat queued/running as alive.
+        status = getattr(info, "status", None)
+        status_str = str(status).upper() if status is not None else ""
+        if status_str in {"QUEUED", "RUNNING"}:
+            return True
+        # Cache the terminal status so returncode() can map it without
+        # re-calling the API.
+        self._terminal_status = status_str
+        return False
 
     def returncode(self) -> Optional[int]:
-        raise NotImplementedError("filled in Task 5")
+        if self._hf_job_id is None:
+            return None
+        # If we haven't yet observed the terminal status, ask now.
+        if self._terminal_status is None and self.is_running():
+            return None
+        if self._terminal_status is None:
+            return None
+        return 0 if self._terminal_status == "COMPLETED" else 1
 
     def stream_log_lines(self) -> List[LogLine]:
         out: List[LogLine] = []
