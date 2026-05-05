@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { useApi } from "@/contexts/ApiContext";
 import { useHfAuth } from "@/contexts/HfAuthContext";
@@ -99,10 +99,13 @@ const ConfigurationMode: React.FC = () => {
   const { auth } = useHfAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
+  const location = useLocation();
+  const prefilledDatasetRepoId =
+    (location.state as { datasetRepoId?: string } | null)?.datasetRepoId ?? "";
 
   const [trainingConfig, setTrainingConfig] = useState<TrainingConfig>({
     target: { runner: "local" },
-    dataset_repo_id: "",
+    dataset_repo_id: prefilledDatasetRepoId,
     policy_type: "act",
     steps: 10000,
     batch_size: 8,

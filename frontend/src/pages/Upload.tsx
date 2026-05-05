@@ -253,12 +253,15 @@ const Upload = () => {
             </p>
             <div className="flex flex-col sm:flex-row gap-4">
               <Button
-                onClick={() =>
-                  window.open(
-                    `https://huggingface.co/datasets/${datasetInfo.dataset_repo_id}`,
-                    "_blank"
-                  )
-                }
+                onClick={() => {
+                  const spacePath = `/spaces/lerobot/visualize_dataset?path=${encodeURIComponent(
+                    `/${datasetInfo.dataset_repo_id}`
+                  )}`;
+                  const target = uploadConfig.private
+                    ? `https://huggingface.co/login?next=${encodeURIComponent(spacePath)}`
+                    : `https://huggingface.co${spacePath}`;
+                  window.open(target, "_blank", "noopener,noreferrer");
+                }}
                 className="bg-blue-500 hover:bg-blue-600 text-white"
               >
                 <ExternalLink className="w-4 h-4 mr-2" />
@@ -273,13 +276,6 @@ const Upload = () => {
                 className="bg-purple-500 hover:bg-purple-600 text-white"
               >
                 Start Training
-              </Button>
-              <Button
-                onClick={() => navigate("/")}
-                variant="outline"
-                className="border-gray-600 text-gray-300 hover:bg-gray-800 hover:text-white"
-              >
-                Return to Home
               </Button>
             </div>
           </div>
