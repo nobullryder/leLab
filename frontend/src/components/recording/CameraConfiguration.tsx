@@ -135,6 +135,29 @@ const CameraConfiguration: React.FC<CameraConfigurationProps> = ({
         };
       });
       setAvailableCameras(merged);
+
+      // cv2's AVFoundation order is uniqueID-sorted, so plugging/unplugging a
+      // device between sessions shifts indices. The browser device_id stays
+      // stable per-origin, so use it to refresh each seeded camera's
+      // camera_index — otherwise the recorder opens the wrong physical device
+      // and the dropdown's "already added" check guards a stale index, letting
+      // the same camera be added twice.
+      if (cameras.length > 0) {
+        let changed = false;
+        const refreshed = cameras.map((cam) => {
+          if (!cam.device_id) return cam;
+          const match = merged.find((m) => m.deviceId === cam.device_id);
+          if (match && match.index !== cam.camera_index) {
+            console.log(
+              `🔄 "${cam.name}" cv2 index ${cam.camera_index} → ${match.index} (device_id stable)`,
+            );
+            changed = true;
+            return { ...cam, camera_index: match.index };
+          }
+          return cam;
+        });
+        if (changed) onCamerasChange(refreshed);
+      }
     } catch (error) {
       console.error("Camera enumeration failed:", error);
       toast({
@@ -171,8 +194,15 @@ const CameraConfiguration: React.FC<CameraConfigurationProps> = ({
       return;
     }
 
-    // Check if camera is already added
-    if (cameras.some((cam) => cam.camera_index === cameraIndex)) {
+    // Block duplicates by either cv2 index or browser deviceId — a stale
+    // camera_index in a seeded camera can otherwise let the same physical
+    // device sneak in under a different index.
+    const isDuplicate = cameras.some(
+      (cam) =>
+        cam.camera_index === selectedCamera.index ||
+        (selectedCamera.deviceId && cam.device_id === selectedCamera.deviceId),
+    );
+    if (isDuplicate) {
       toast({
         title: "Camera Already Added",
         description: "This camera is already in the configuration.",
@@ -264,7 +294,9 @@ const CameraConfiguration: React.FC<CameraConfigurationProps> = ({
               <SelectContent className="bg-gray-800 border-gray-700">
                 {availableCameras.map((camera) => {
                   const alreadyAdded = cameras.some(
-                    (cam) => cam.camera_index === camera.index
+                    (cam) =>
+                      cam.camera_index === camera.index ||
+                      (camera.deviceId && cam.device_id === camera.deviceId),
                   );
                   return (
                     <SelectItem
