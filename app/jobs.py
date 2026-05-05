@@ -452,6 +452,34 @@ def _list_local_checkpoints(output_dir: str) -> List[JobCheckpoint]:
     return out
 
 
+_CLOUD_CKPT_TTL_SECONDS = 30.0
+_CKPT_PATH_RE = re.compile(r"^checkpoints/(\d+)/pretrained_model/config\.json$")
+
+
+def _list_hub_checkpoints(api, repo_id: str) -> List[JobCheckpoint]:
+    """List checkpoints by introspecting the model repo file tree."""
+    try:
+        files = api.list_repo_files(repo_id, repo_type="model")
+    except Exception:
+        # Repo may not exist yet (training just started, sidecar hasn't
+        # uploaded anything). Treat as no checkpoints.
+        return []
+    seen: Dict[int, JobCheckpoint] = {}
+    for path in files:
+        m = _CKPT_PATH_RE.match(path)
+        if not m:
+            continue
+        step = int(m.group(1))
+        seen[step] = JobCheckpoint(
+            step=step,
+            source="hub",
+            ref=f"{repo_id}@checkpoints/{step}",
+        )
+    out = list(seen.values())
+    out.sort(key=lambda c: c.step)
+    return out
+
+
 def _generate_job_id(policy_type: str, dataset_repo_id: str) -> str:
     """Build a sortable, collision-free job id from policy type and dataset slug."""
     from .training import _SLUG_RE
@@ -503,6 +531,9 @@ class JobRegistry:
 
         self._stop_watchdog = threading.Event()
         self._watchdog_thread: Optional[threading.Thread] = None
+
+        # repo_id -> (expires_at_epoch, checkpoint list)
+        self._cloud_ckpt_cache: Dict[str, tuple[float, List[JobCheckpoint]]] = {}
 
         self._load_from_disk()
         self._start_watchdog()
@@ -649,23 +680,32 @@ class JobRegistry:
         Local jobs: scan <output_dir>/checkpoints/<step>/pretrained_model/
         for valid checkpoint dirs. The 'last' symlink is ignored — we sort
         by step and the latest is just max(step).
-        Cloud jobs: handled in a later task; returns [] for now.
+        Cloud jobs: introspect the Hub model repo file tree (30s TTL cache).
         """
         with self._lock:
             record = self._records.get(job_id)
         if record is None:
             raise JobNotFoundError(job_id)
-
         if record.runner == "local":
             return _list_local_checkpoints(record.output_dir)
-        # Cloud branch added in Task 6.
-        return []
+        return self._list_cloud_cached(record.hf_repo_id)
+
+    def _list_cloud_cached(self, repo_id: Optional[str]) -> List[JobCheckpoint]:
+        if not repo_id:
+            return []
+        from huggingface_hub import HfApi  # lazy: keeps unit-test imports cheap
+        now = time.time()
+        cached = self._cloud_ckpt_cache.get(repo_id)
+        if cached is not None and cached[0] > now:
+            return cached[1]
+        result = _list_hub_checkpoints(HfApi(), repo_id)
+        self._cloud_ckpt_cache[repo_id] = (now + _CLOUD_CKPT_TTL_SECONDS, result)
+        return result
 
     def _count_checkpoints(self, record: JobRecord) -> int:
         if record.runner == "local":
             return len(_list_local_checkpoints(record.output_dir))
-        # Cloud counted in Task 6 once the cache exists; zero for now.
-        return 0
+        return len(self._list_cloud_cached(record.hf_repo_id))
 
     def delete(self, job_id: str) -> None:
         with self._lock:
