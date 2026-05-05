@@ -55,8 +55,10 @@ const InferenceModal: React.FC<Props> = ({
 
   useEffect(() => {
     if (!open) return;
+    let cancelled = false;
     listJobCheckpoints(baseUrl, fetchWithHeaders, jobId)
       .then((cks) => {
+        if (cancelled) return;
         setCheckpoints(cks);
         if (cks.length > 0) {
           // Latest preselected if the caller didn't pin one.
@@ -64,7 +66,13 @@ const InferenceModal: React.FC<Props> = ({
           setSelectedStep((prev) => (prev != null ? prev : latest));
         }
       })
-      .catch(() => setCheckpoints([]));
+      .catch(() => {
+        if (cancelled) return;
+        setCheckpoints([]);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [open, baseUrl, fetchWithHeaders, jobId]);
 
   useEffect(() => {
