@@ -40,6 +40,13 @@ const Inference: React.FC = () => {
 
   useEffect(() => {
     let cancelled = false;
+    const stopIfHung = async () => {
+      try {
+        await stopInference(baseUrl, fetchWithHeaders);
+      } catch {
+        // The next status poll will surface the failure if it persists.
+      }
+    };
     const tick = async () => {
       try {
         const next = await getInferenceStatus(baseUrl, fetchWithHeaders);
@@ -59,6 +66,29 @@ const Inference: React.FC = () => {
             });
           }
           navigate("/");
+          return;
+        }
+        // Safety net: if the rollout subprocess is still running well past
+        // its declared duration (lerobot's --duration is honoured inside its
+        // main loop, so a hang during connect/load never sees the cutoff),
+        // fire stopInference once. The status poll on the next tick picks
+        // up the now-inactive state and navigates home.
+        if (
+          next.inference_active &&
+          next.duration_s != null &&
+          next.duration_s > 0 &&
+          next.elapsed_s > next.duration_s + 10 &&
+          !navigatedAwayRef.current
+        ) {
+          navigatedAwayRef.current = true;
+          toast({
+            title: "Inference seems hung",
+            description: `Past duration by ${Math.round(
+              next.elapsed_s - next.duration_s,
+            )}s. Stopping.`,
+            variant: "destructive",
+          });
+          stopIfHung();
         }
       } catch (e) {
         if (!cancelled) {

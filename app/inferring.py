@@ -135,12 +135,26 @@ def handle_start_inference(request: InferenceRequest) -> Dict[str, Any]:
 
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"
+        # Feed a single newline into stdin so SOFollower.calibrate()'s
+        # `input("Press ENTER to use the calibration file ...")` returns "" and
+        # writes the existing calibration to the motors instead of hanging
+        # forever waiting for an interactive operator. Subsequent input()
+        # calls in the recalibration path get EOF and raise — which is fine,
+        # because we never want to enter that path from the UI.
         proc = subprocess.Popen(
             cmd,
+            stdin=subprocess.PIPE,
             stdout=log_handle,
             stderr=subprocess.STDOUT,
             env=env,
         )
+        try:
+            assert proc.stdin is not None
+            proc.stdin.write(b"\n")
+            proc.stdin.flush()
+            proc.stdin.close()
+        except Exception as exc:
+            logger.warning("Failed to seed stdin for inference subprocess: %s", exc)
     except Exception as exc:
         logger.exception("Failed to start inference")
         return {"success": False, "status_code": 500,
