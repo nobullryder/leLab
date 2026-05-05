@@ -46,7 +46,44 @@ class HfCloudJobRunner:
         self._terminal_status: Optional[str] = None
 
     def start(self, job_id: str, config: TrainingRequest, output_dir: str) -> None:
-        raise NotImplementedError("filled in Task 4")
+        if self._hf_job_id is not None:
+            raise RuntimeError("HfCloudJobRunner already started")
+
+        token = get_token()
+        if not token:
+            raise RuntimeError(
+                "HF token not found. Run 'hf auth login' before launching cloud jobs."
+            )
+
+        whoami = self._api.whoami()
+        username = whoami.get("name") if isinstance(whoami, dict) else None
+        if not username:
+            raise RuntimeError("Could not resolve HF username from whoami()")
+
+        # Mutate the config so build_training_command emits the right flags.
+        # The mutated config is what gets persisted in JobRecord.config, so
+        # the historical record reflects what actually ran.
+        config.policy_push_to_hub = True
+        # job_id is already a unique slug like "act_dataset_2026-05-04_10-22-03".
+        config.policy_repo_id = f"{username}/{job_id}"
+
+        argv = build_training_command(config, output_dir)
+        logger.info("Submitting HF Cloud job %s on %s: %s",
+                    job_id, self._flavor, " ".join(argv))
+
+        # Open the persistent log sink — same shape as LocalJobRunner.
+        self._log_file_path.parent.mkdir(parents=True, exist_ok=True)
+        self._log_file = self._log_file_path.open("a", buffering=1)
+
+        job = self._api.run_job(
+            image=LEROBOT_IMAGE,
+            command=argv,
+            flavor=self._flavor,
+            environment={"HF_TOKEN": token},
+        )
+        self._hf_job_id = job.id
+
+        # Log-tailing thread is started in Task 5.
 
     def stop(self) -> None:
         raise NotImplementedError("filled in Task 5")
