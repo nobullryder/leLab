@@ -6,11 +6,13 @@ import os
 import logging
 import glob
 import asyncio
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import threading
 import queue
+import time
 from pathlib import Path
 from . import config
+from huggingface_hub import HfApi, get_token
 
 # Import our custom recording functionality
 from .recording import (
@@ -60,6 +62,10 @@ from . import dataset_browser
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Cache for HF Jobs hardware flavors (5-minute TTL)
+_flavors_cache: dict = {"data": None, "fetched_at": 0.0}
+_FLAVOR_CACHE_TTL_SECONDS = 300.0
 
 # Global variables for WebSocket connections
 connected_websockets: List[WebSocket] = []
@@ -415,6 +421,60 @@ def delete_job(job_id: str):
         raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
     except JobNotRunningError:
         raise HTTPException(status_code=409, detail=f"Job {job_id!r} is running; stop it first")
+
+
+@app.get("/jobs/runners/hardware")
+def get_runners_hardware():
+    """Return HF Jobs flavor catalog + auth state for the TargetCard.
+
+    The flavors list is cached in-process for 5 minutes; whoami is fetched
+    fresh each call (cheap; resolves the active HF token).
+    """
+    token = get_token()
+    api = HfApi()
+    authenticated = False
+    username: Optional[str] = None
+    if token:
+        try:
+            who = api.whoami()
+            if isinstance(who, dict) and who.get("name"):
+                authenticated = True
+                username = who["name"]
+        except Exception as exc:
+            logger.info("whoami failed: %s", exc)
+
+    if not authenticated:
+        return {"authenticated": False, "username": None, "flavors": []}
+
+    now = time.time()
+    if (
+        _flavors_cache["data"] is None
+        or now - _flavors_cache["fetched_at"] > _FLAVOR_CACHE_TTL_SECONDS
+    ):
+        try:
+            hw_list = api.list_jobs_hardware()
+        except Exception as exc:
+            logger.warning("list_jobs_hardware failed: %s", exc)
+            return {"authenticated": True, "username": username, "flavors": []}
+        _flavors_cache["data"] = [
+            {
+                "name": h.name,
+                "pretty_name": h.pretty_name,
+                "cpu": h.cpu,
+                "ram": h.ram,
+                "accelerator": h.accelerator,
+                "unit_cost_usd": h.unit_cost_usd,
+                "unit_label": h.unit_label,
+            }
+            for h in hw_list
+        ]
+        _flavors_cache["fetched_at"] = now
+
+    return {
+        "authenticated": True,
+        "username": username,
+        "flavors": _flavors_cache["data"],
+    }
 
 
 # ============================================================================
