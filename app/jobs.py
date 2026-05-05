@@ -68,6 +68,17 @@ class JobRecord(BaseModel):
     hf_job_url: Optional[str] = None
 
 
+class JobCheckpoint(BaseModel):
+    """One checkpoint produced by a training job.
+
+    `ref` is opaque to the frontend; the inference handler resolves it back
+    to a usable `--policy.path` value (a local dir for both sources, after
+    snapshot_download for hub refs)."""
+    step: int
+    source: Literal["local", "hub"]
+    ref: str
+
+
 def _pid_alive(pid: int) -> bool:
     """Return True if a process with this PID exists. Cheap; uses signal 0."""
     try:
@@ -409,6 +420,35 @@ class TailingJobRunner:
 _PERSIST_THROTTLE_SECONDS = 1.0
 
 
+def _list_local_checkpoints(output_dir: str) -> List[JobCheckpoint]:
+    """Scan an output dir for valid checkpoint subdirectories.
+
+    A directory under <output_dir>/checkpoints/ is a valid checkpoint iff
+    its name parses to an int and it contains pretrained_model/config.json.
+    """
+    root = Path(output_dir) / "checkpoints"
+    if not root.is_dir():
+        return []
+    out: List[JobCheckpoint] = []
+    for entry in root.iterdir():
+        if entry.is_symlink() or not entry.is_dir():
+            continue
+        try:
+            step = int(entry.name)
+        except ValueError:
+            continue
+        config_json = entry / "pretrained_model" / "config.json"
+        if not config_json.is_file():
+            continue
+        out.append(JobCheckpoint(
+            step=step,
+            source="local",
+            ref=str((entry / "pretrained_model").resolve()),
+        ))
+    out.sort(key=lambda c: c.step)
+    return out
+
+
 def _generate_job_id(policy_type: str, dataset_repo_id: str) -> str:
     """Build a sortable, collision-free job id from policy type and dataset slug."""
     from .training import _SLUG_RE
@@ -596,6 +636,24 @@ class JobRegistry:
                     continue  # skip a malformed line rather than 500ing
         return out
 
+    def list_checkpoints(self, job_id: str) -> List[JobCheckpoint]:
+        """Return checkpoints saved for this job, ascending by step.
+
+        Local jobs: scan <output_dir>/checkpoints/<step>/pretrained_model/
+        for valid checkpoint dirs. The 'last' symlink is ignored — we sort
+        by step and the latest is just max(step).
+        Cloud jobs: handled in a later task; raises for now.
+        """
+        with self._lock:
+            record = self._records.get(job_id)
+        if record is None:
+            raise JobNotFoundError(job_id)
+
+        if record.runner == "local":
+            return _list_local_checkpoints(record.output_dir)
+        # Cloud branch added in Task 6.
+        return []
+
     def delete(self, job_id: str) -> None:
         with self._lock:
             record = self._records.get(job_id)
@@ -764,6 +822,7 @@ __all__ = [
     "TrainingMetrics",
     "LogLine",
     "JobRecord",
+    "JobCheckpoint",
     "JobRunner",
     "LocalJobRunner",
     "JobRegistry",
