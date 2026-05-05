@@ -60,6 +60,7 @@ export interface JobRecord {
   hf_flavor: string | null;
   hf_repo_id: string | null;
   hf_job_url: string | null;
+  checkpoint_count: number;
 }
 
 type Fetcher = (url: string, options?: RequestInit) => Promise<Response>;
