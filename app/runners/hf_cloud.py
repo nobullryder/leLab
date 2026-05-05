@@ -23,6 +23,104 @@ logger = logging.getLogger(__name__)
 
 LEROBOT_IMAGE = "huggingface/lerobot-gpu:latest"
 
+# Inlined sidecar uploader for HF Jobs. Spawns the lerobot trainer as a
+# subprocess and concurrently uploads new <output_dir>/checkpoints/<step>/
+# directories to the Hub model repo, so the lelab UI can list them while
+# training is in progress.
+#
+# Sent verbatim as the value of `python -c '...'`. Anything after `--` in
+# the command argv is forwarded to the trainer.
+WRAPPER_SOURCE = r'''
+import os, re, sys, time, threading, subprocess
+from pathlib import Path
+from huggingface_hub import HfApi
+
+argv = sys.argv[1:]
+if "--" not in argv:
+    print("[wrapper] missing -- separator", flush=True)
+    sys.exit(2)
+sep = argv.index("--")
+trainer_argv = argv[sep + 1:]
+
+
+def _arg(name):
+    """Return the value of --name=foo or --name foo from trainer_argv."""
+    for i, tok in enumerate(trainer_argv):
+        if tok == name and i + 1 < len(trainer_argv):
+            return trainer_argv[i + 1]
+        if tok.startswith(name + "="):
+            return tok.split("=", 1)[1]
+    return None
+
+
+output_dir = _arg("--output_dir")
+repo_id = _arg("--policy.repo_id")
+if not output_dir or not repo_id:
+    print(f"[wrapper] need --output_dir and --policy.repo_id; got {output_dir} / {repo_id}", flush=True)
+    sys.exit(2)
+
+api = HfApi()
+seen = set()
+stop_event = threading.Event()
+
+
+def _scan_and_upload(final=False):
+    root = Path(output_dir) / "checkpoints"
+    if not root.is_dir():
+        return
+    # Snapshot before iterating so deletions during the walk do not raise.
+    entries = sorted(p for p in root.iterdir() if p.is_dir() and not p.is_symlink())
+    for entry in entries:
+        if not re.fullmatch(r"\d+", entry.name):
+            continue
+        config_json = entry / "pretrained_model" / "config.json"
+        if not config_json.is_file():
+            continue
+        if entry.name in seen:
+            continue
+        # Final pass: re-upload anyway in case earlier upload was partial.
+        try:
+            api.upload_folder(
+                folder_path=str(entry),
+                repo_id=repo_id,
+                path_in_repo=f"checkpoints/{entry.name}",
+                commit_message=f"checkpoint {entry.name}",
+            )
+            seen.add(entry.name)
+            print(f"[wrapper] uploaded checkpoint {entry.name}", flush=True)
+        except Exception as exc:
+            print(f"[wrapper] upload failed for {entry.name}: {exc}", flush=True)
+
+
+def _watch():
+    while not stop_event.is_set():
+        try:
+            _scan_and_upload()
+        except Exception as exc:
+            print(f"[wrapper] scan error: {exc}", flush=True)
+        stop_event.wait(15)
+
+
+watch_thread = threading.Thread(target=_watch, name="ckpt-watcher", daemon=True)
+watch_thread.start()
+
+cmd = ["python", "-m", "lerobot.scripts.lerobot_train", *trainer_argv]
+print(f"[wrapper] launching trainer: {' '.join(cmd)}", flush=True)
+proc = subprocess.Popen(cmd, env=os.environ.copy())
+try:
+    rc = proc.wait()
+finally:
+    stop_event.set()
+    # One final pass picks up any checkpoint saved in the last 15s window.
+    try:
+        _scan_and_upload(final=True)
+    except Exception as exc:
+        print(f"[wrapper] final scan error: {exc}", flush=True)
+
+print(f"[wrapper] trainer exited with rc={rc}", flush=True)
+sys.exit(rc)
+'''
+
 # HF Jobs' platform default timeout has killed legitimate runs that pushed
 # the model successfully but were still uploading auxiliary files. 2h covers
 # our typical ACT/SmolVLA runs on t4-small with comfortable headroom.
