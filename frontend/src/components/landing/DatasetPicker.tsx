@@ -18,7 +18,7 @@ import { DatasetItem } from "@/lib/replayApi";
 interface DatasetPickerProps {
   datasets: DatasetItem[];
   loading: boolean;
-  onPickExisting: (repoId: string) => void;
+  onPickExisting: (item: DatasetItem) => void;
   onCreateNew: (name: string) => void;
   onOpenCustom: (repoId: string) => void;
   children: React.ReactNode;
@@ -47,13 +47,16 @@ const DatasetPicker: React.FC<DatasetPickerProps> = ({
   const canCreate = trimmed.length > 0 && isName && !matchesExisting;
   const canOpenCustom = isRepoId && !matchesExisting;
 
+  const localDatasets = datasets.filter((d) => d.source === "local" || d.source === "both");
+  const hubDatasets = datasets.filter((d) => d.source === "hub");
+
   const reset = () => {
     setQuery("");
     setOpen(false);
   };
 
-  const handlePick = (repoId: string) => {
-    onPickExisting(repoId);
+  const handlePick = (item: DatasetItem) => {
+    onPickExisting(item);
     reset();
   };
 
@@ -68,6 +71,23 @@ const DatasetPicker: React.FC<DatasetPickerProps> = ({
     onOpenCustom(trimmed);
     reset();
   };
+
+  const renderItem = (d: DatasetItem) => (
+    <CommandItem
+      key={d.repo_id}
+      value={d.repo_id}
+      onSelect={() => handlePick(d)}
+      className="text-white aria-selected:bg-gray-700"
+    >
+      <span className="flex-1 truncate">{d.repo_id}</span>
+      {d.source === "both" && (
+        <span className="text-xs text-gray-400 mr-2">on Hub</span>
+      )}
+      {d.private && (
+        <span className="text-xs text-amber-400">private</span>
+      )}
+    </CommandItem>
+  );
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -101,21 +121,14 @@ const DatasetPicker: React.FC<DatasetPickerProps> = ({
                   : "No datasets yet. Type a name to create one."}
               </CommandEmpty>
             )}
-            {datasets.length > 0 && (
-              <CommandGroup heading="Existing">
-                {datasets.map((d) => (
-                  <CommandItem
-                    key={d.repo_id}
-                    value={d.repo_id}
-                    onSelect={() => handlePick(d.repo_id)}
-                    className="text-white aria-selected:bg-gray-700"
-                  >
-                    <span className="flex-1 truncate">{d.repo_id}</span>
-                    {d.private && (
-                      <span className="text-xs text-amber-400">private</span>
-                    )}
-                  </CommandItem>
-                ))}
+            {localDatasets.length > 0 && (
+              <CommandGroup heading="Local">
+                {localDatasets.map(renderItem)}
+              </CommandGroup>
+            )}
+            {hubDatasets.length > 0 && (
+              <CommandGroup heading="Hugging Face">
+                {hubDatasets.map(renderItem)}
               </CommandGroup>
             )}
             {canCreate && (
