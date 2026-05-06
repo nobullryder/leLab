@@ -336,8 +336,11 @@ def hf_auth_login(body: HfLoginBody):
 
 @app.get("/datasets")
 def datasets_list():
-    """List datasets the logged-in HF user owns or shares with their orgs."""
-    return dataset_browser.list_user_datasets()
+    """List datasets available to the user — Hub-owned + local cache.
+
+    Each entry carries a `source` field: "local", "hub", or "both".
+    """
+    return dataset_browser.list_all_datasets()
 
 
 @app.get("/ws-test")
