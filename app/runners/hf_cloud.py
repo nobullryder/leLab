@@ -25,6 +25,12 @@ logger = logging.getLogger(__name__)
 
 LEROBOT_IMAGE = "huggingface/lerobot-gpu:latest"
 
+# TODO(local-datasets): this runner assumes dataset_repo_id resolves on the Hub.
+# Local-only datasets selected from the new dataset dropdown will fail at job
+# start because the cloud GPU pod can't see ~/.cache/huggingface/lerobot.
+# Either upload the dataset before submitting, or refuse the job with a clear
+# message. See docs/superpowers/specs/2026-05-06-local-datasets-in-dropdown-design.md.
+
 # Inlined sidecar uploader for HF Jobs. Spawns the lerobot trainer as a
 # subprocess and concurrently uploads new <output_dir>/checkpoints/<step>/
 # directories to the Hub model repo, so the lelab UI can list them while
