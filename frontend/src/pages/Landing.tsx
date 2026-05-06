@@ -15,6 +15,7 @@ import UsageInstructionsModal from "@/components/landing/UsageInstructionsModal"
 import { useHfAuth } from "@/contexts/HfAuthContext";
 import { useRobots } from "@/hooks/useRobots";
 import { useDatasets } from "@/hooks/useDatasets";
+import { DatasetItem } from "@/lib/replayApi";
 import { CameraConfig } from "@/components/recording/CameraConfiguration";
 import { isHostedSpace } from "@/lib/isHostedSpace";
 
@@ -88,14 +89,28 @@ const Landing = () => {
 
   const handleTrainingClick = () => navigate("/training");
 
-  const openDatasetInViewer = (repoId: string) => {
-    const found = datasets.find((d) => d.repo_id === repoId);
-    const needsAuth = !found || found.private;
+  const openHubViewer = (repoId: string, isPrivate: boolean) => {
     const spacePath = `/spaces/lerobot/visualize_dataset?path=${encodeURIComponent(`/${repoId}`)}`;
-    const target = needsAuth
+    const target = isPrivate
       ? `https://huggingface.co/login?next=${encodeURIComponent(spacePath)}`
       : `https://huggingface.co${spacePath}`;
     window.open(target, "_blank", "noopener,noreferrer");
+  };
+
+  const handlePickExisting = (item: DatasetItem) => {
+    if (item.source === "local" || item.source === "both") {
+      navigate("/upload", {
+        state: { datasetInfo: { dataset_repo_id: item.repo_id } },
+      });
+      return;
+    }
+    openHubViewer(item.repo_id, item.private);
+  };
+
+  const handleOpenCustom = (repoId: string) => {
+    // Custom-typed repo IDs are always treated as Hub paths. We don't know
+    // privacy, so route through the login redirect to be safe.
+    openHubViewer(repoId, true);
   };
 
   const handleCreateDataset = (name: string) => {
@@ -200,8 +215,8 @@ const Landing = () => {
     <DatasetPicker
       datasets={datasets}
       loading={datasetsLoading}
-      onPickExisting={openDatasetInViewer}
-      onOpenCustom={openDatasetInViewer}
+      onPickExisting={handlePickExisting}
+      onOpenCustom={handleOpenCustom}
       onCreateNew={handleCreateDataset}
     >
       <Button
