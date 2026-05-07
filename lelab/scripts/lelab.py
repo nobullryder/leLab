@@ -25,7 +25,7 @@ import uvicorn
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-PROJECT_ROOT = Path(__file__).parent.parent
+PROJECT_ROOT = Path(__file__).parent.parent.parent
 FRONTEND_PATH = PROJECT_ROOT / "frontend"
 FRONTEND_DIST = FRONTEND_PATH / "dist"
 BACKEND_PORT = 8000
@@ -72,7 +72,7 @@ def _run_prod():
     # Run uvicorn in the main thread so its native SIGINT handler works,
     # and bound graceful shutdown so a stuck WebSocket can't hang Ctrl+C.
     uvicorn.run(
-        "app.main:app",
+        "lelab.server:app",
         host="127.0.0.1",
         port=BACKEND_PORT,
         log_level="info",
@@ -110,7 +110,7 @@ def _run_dev():
             sys.executable,
             "-m",
             "uvicorn",
-            "app.main:app",
+            "lelab.server:app",
             "--host",
             "127.0.0.1",
             "--port",

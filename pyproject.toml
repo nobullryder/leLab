@@ -19,7 +19,7 @@ dependencies = [
 ]
 
 [project.scripts]
-lelab = "scripts.backend:main"
+lelab = "lelab.scripts.lelab:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
