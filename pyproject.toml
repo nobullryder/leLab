@@ -18,6 +18,13 @@ dependencies = [
     "lerobot[core_scripts,feetech,training] @ git+https://github.com/huggingface/lerobot.git@82dffde7fad11cba91f7916b050fbe7d7eea35ab",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "ruff>=0.6",
+    "pre-commit>=3.0",
+]
+
 [project.scripts]
 lelab = "lelab.scripts.lelab:main"
 
