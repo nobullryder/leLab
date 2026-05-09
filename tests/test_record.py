@@ -29,12 +29,16 @@ def test_recording_request_rejects_missing_required_fields() -> None:
         RecordingRequest()
 
 
-def test_recording_status_handler_returns_dict_with_active_flag() -> None:
+def test_recording_status_handler_exposes_state_fields() -> None:
     from lelab.record import handle_recording_status
 
     result = handle_recording_status()
     assert isinstance(result, dict)
-    assert "recording_active" in result or "active" in result or "status" in result
+    # Pinning the exact keys so a rename in handle_recording_status surfaces here.
+    assert "recording_active" in result
+    assert "current_phase" in result
+    assert "session_ended" in result
+    assert "available_controls" in result
 
 
 def test_handle_stop_recording_when_idle_returns_dict(tmp_lerobot_home) -> None:

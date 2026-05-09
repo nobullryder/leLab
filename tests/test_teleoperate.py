@@ -48,12 +48,5 @@ def test_get_joint_positions_from_robot_uses_provided_object() -> None:
 
     robot = FakeRobot()
     robot.connect()
-    try:
-        positions = get_joint_positions_from_robot(robot)
-        # Implementation may return {} or {"shoulder_pan.pos": 0.0, ...}.
-        # Either is acceptable; we just assert the call is non-fatal.
-        assert isinstance(positions, dict)
-    except (AttributeError, NotImplementedError):
-        # If the function expects more methods on the robot than FakeRobot
-        # implements, that's fine — log via skip rather than fail.
-        pytest.skip("get_joint_positions_from_robot expects a richer robot surface")
+    positions = get_joint_positions_from_robot(robot)
+    assert isinstance(positions, dict)
