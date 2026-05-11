@@ -94,3 +94,22 @@ docstring-code-format = true
 testpaths = ["tests"]
 addopts = "-vv --maxfail=10"
 asyncio_mode = "auto"
+
+[tool.typos]
+files.extend-exclude = [
+    "frontend/dist/**",
+    "frontend/.gitattributes",
+]
+
+[tool.bandit]
+exclude_dirs = ["tests"]
+skips = ["B101", "B110", "B112", "B311", "B404", "B603", "B607", "B615"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+follow_imports = "skip"
+
+[[tool.mypy.overrides]]
+module = "lelab.*"
+ignore_errors = true
