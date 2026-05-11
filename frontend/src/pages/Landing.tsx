@@ -5,12 +5,10 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import LandingTopBar from "@/components/landing/LandingTopBar";
 import RobotConfigManager from "@/components/landing/RobotConfigManager";
-import ActionList from "@/components/landing/ActionList";
 import RecordingModal from "@/components/landing/RecordingModal";
 import DatasetPicker from "@/components/landing/DatasetPicker";
 import JobsSection from "@/components/jobs/JobsSection";
 
-import { Action } from "@/components/landing/types";
 import UsageInstructionsModal from "@/components/landing/UsageInstructionsModal";
 import { useHfAuth } from "@/contexts/HfAuthContext";
 import { useRobots } from "@/hooks/useRobots";
@@ -216,41 +214,6 @@ const Landing = () => {
     navigate("/recording", { state: { recordingConfig } });
   };
 
-  const datasetTrigger = (
-    <DatasetPicker
-      datasets={datasets}
-      loading={datasetsLoading}
-      onPickExisting={handlePickExisting}
-      onOpenCustom={handleOpenCustom}
-      onCreateNew={handleCreateDataset}
-    >
-      <Button
-        variant="outline"
-        role="combobox"
-        className="w-[260px] justify-between bg-gray-800 border-gray-600 text-white hover:bg-gray-700"
-      >
-        <span className="truncate text-gray-300">
-          {datasetsLoading ? "Loading datasets…" : "Select or create a dataset…"}
-        </span>
-        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-      </Button>
-    </DatasetPicker>
-  );
-
-  const actions: Action[] = [
-    {
-      title: "Dataset",
-      description: "Pick an existing dataset or create a new one to record.",
-      trigger: datasetTrigger,
-    },
-    {
-      title: "Training",
-      description: "Train a model on your datasets.",
-      handler: handleTrainingClick,
-      color: "bg-green-500 hover:bg-green-600",
-    },
-  ];
-
   return (
     <div
       className="min-h-screen bg-black text-white"
@@ -272,7 +235,42 @@ const Landing = () => {
             createRobot={createRobot}
             deleteRobot={deleteRobot}
           />
-          <ActionList actions={actions} />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="bg-gray-800 rounded-lg border border-gray-700 p-3 flex flex-col gap-2">
+              <h3 className="font-semibold text-lg text-left">Dataset</h3>
+              <DatasetPicker
+                datasets={datasets}
+                loading={datasetsLoading}
+                onPickExisting={handlePickExisting}
+                onOpenCustom={handleOpenCustom}
+                onCreateNew={handleCreateDataset}
+              >
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  className="w-full justify-between bg-gray-800 border-gray-600 text-white hover:bg-gray-700"
+                >
+                  <span className="truncate text-gray-300">
+                    {datasetsLoading
+                      ? "Loading datasets…"
+                      : "Select or create a dataset…"}
+                  </span>
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </DatasetPicker>
+            </div>
+            <div className="bg-gray-800 rounded-lg border border-gray-700 p-3 flex flex-col gap-2">
+              <p className="text-gray-400 text-sm text-left">
+                Train a model on your datasets.
+              </p>
+              <Button
+                onClick={handleTrainingClick}
+                className="w-full bg-green-500 hover:bg-green-600 text-white"
+              >
+                Training
+              </Button>
+            </div>
+          </div>
         </div>
       </div>
 
