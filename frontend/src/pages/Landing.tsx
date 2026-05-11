@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowRight } from "lucide-react";
+import { ChevronsUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import LandingTopBar from "@/components/landing/LandingTopBar";
@@ -225,10 +225,14 @@ const Landing = () => {
       onCreateNew={handleCreateDataset}
     >
       <Button
-        size="icon"
-        className="bg-purple-500 hover:bg-purple-600 text-white"
+        variant="outline"
+        role="combobox"
+        className="w-[260px] justify-between bg-gray-800 border-gray-600 text-white hover:bg-gray-700"
       >
-        <ArrowRight className="w-5 h-5" />
+        <span className="truncate text-gray-300">
+          {datasetsLoading ? "Loading datasets…" : "Select or create a dataset…"}
+        </span>
+        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
       </Button>
     </DatasetPicker>
   );
