@@ -47,6 +47,21 @@ const DatasetPicker: React.FC<DatasetPickerProps> = ({
   const canCreate = trimmed.length > 0 && isName && !matchesExisting;
   const canOpenCustom = isRepoId && !matchesExisting;
 
+  const createDisabled = matchesExisting || (trimmed !== "" && !canCreate);
+  const createLabel = matchesExisting
+    ? "Already exists"
+    : trimmed === ""
+      ? "Create new dataset…"
+      : canCreate
+        ? `Create "${trimmed}"`
+        : 'Use a name without "/"';
+
+  const handleFooterCreate = () => {
+    if (createDisabled) return;
+    onCreateNew(trimmed);
+    reset();
+  };
+
   const localDatasets = datasets.filter((d) => d.source === "local" || d.source === "both");
   const hubDatasets = datasets.filter((d) => d.source === "hub");
 
@@ -131,18 +146,6 @@ const DatasetPicker: React.FC<DatasetPickerProps> = ({
                 {hubDatasets.map(renderItem)}
               </CommandGroup>
             )}
-            {canCreate && (
-              <CommandGroup heading="New">
-                <CommandItem
-                  value={`__create__${trimmed}`}
-                  onSelect={handleCreate}
-                  className="text-white aria-selected:bg-gray-700"
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  Create &quot;{trimmed}&quot;
-                </CommandItem>
-              </CommandGroup>
-            )}
             {canOpenCustom && (
               <CommandGroup heading="Custom repo">
                 <CommandItem
@@ -156,6 +159,15 @@ const DatasetPicker: React.FC<DatasetPickerProps> = ({
               </CommandGroup>
             )}
           </CommandList>
+          <button
+            type="button"
+            onClick={handleFooterCreate}
+            disabled={createDisabled}
+            className="flex w-full items-center gap-2 border-t border-gray-700 px-3 py-2 text-sm text-white hover:bg-gray-700 disabled:cursor-not-allowed disabled:text-gray-500 disabled:hover:bg-transparent"
+          >
+            <Plus className="h-4 w-4" />
+            {createLabel}
+          </button>
         </Command>
       </PopoverContent>
     </Popover>
