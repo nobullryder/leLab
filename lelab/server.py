@@ -578,6 +578,18 @@ def get_job_log_file(job_id: str):
     return {"logs": logs}
 
 
+@app.get("/jobs/{job_id}/metrics-history")
+def get_job_metrics_history(job_id: str):
+    """Return the per-step loss/lr/grad-norm series reconstructed from the
+    job's log.jsonl. Used to seed the monitoring charts so curves persist
+    across page reloads, navigation, and lelab restarts."""
+    try:
+        points = job_registry.read_metrics_history(job_id)
+    except JobNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found") from exc
+    return {"points": points}
+
+
 @app.get("/jobs/{job_id}/checkpoints")
 def get_job_checkpoints(job_id: str):
     """List the checkpoints saved for this job, ascending by step."""
