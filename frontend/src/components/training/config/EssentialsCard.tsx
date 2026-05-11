@@ -86,7 +86,7 @@ const EssentialsCard: React.FC<EssentialsCardProps> = ({ config, updateConfig, d
               <SelectTrigger id="policy_type" className="bg-slate-900 border-slate-600 text-white rounded-lg">
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent className="bg-slate-800 border-slate-600">
+              <SelectContent className="bg-slate-800 border-slate-600 text-white">
                 <SelectItem value="act">ACT (Action Chunking Transformer)</SelectItem>
                 <SelectItem value="diffusion">Diffusion Policy</SelectItem>
                 <SelectItem value="pi0">PI0</SelectItem>

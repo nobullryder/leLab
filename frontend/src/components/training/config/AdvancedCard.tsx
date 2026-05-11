@@ -66,7 +66,7 @@ const AdvancedCard: React.FC<ConfigComponentProps> = ({ config, updateConfig }) 
                   <SelectTrigger id="policy_device" className="bg-slate-900 border-slate-600 text-white rounded-lg">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent className="bg-slate-800 border-slate-600">
+                  <SelectContent className="bg-slate-800 border-slate-600 text-white">
                     <SelectItem value="cuda">CUDA (GPU)</SelectItem>
                     <SelectItem value="cpu">CPU</SelectItem>
                     <SelectItem value="mps">MPS (Apple Silicon)</SelectItem>
@@ -143,7 +143,7 @@ const AdvancedCard: React.FC<ConfigComponentProps> = ({ config, updateConfig }) 
                 <SelectTrigger id="optimizer_type" className="bg-slate-900 border-slate-600 text-white rounded-lg">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-slate-800 border-slate-600">
+                <SelectContent className="bg-slate-800 border-slate-600 text-white">
                   <SelectItem value="adam">Adam</SelectItem>
                   <SelectItem value="adamw">AdamW</SelectItem>
                   <SelectItem value="sgd">SGD</SelectItem>
@@ -315,7 +315,7 @@ const AdvancedCard: React.FC<ConfigComponentProps> = ({ config, updateConfig }) 
                     <SelectTrigger id="wandb_mode" className="bg-slate-900 border-slate-600 text-white rounded-lg">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent className="bg-slate-800 border-slate-600">
+                    <SelectContent className="bg-slate-800 border-slate-600 text-white">
                       <SelectItem value="online">Online</SelectItem>
                       <SelectItem value="offline">Offline</SelectItem>
                       <SelectItem value="disabled">Disabled</SelectItem>

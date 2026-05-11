@@ -59,7 +59,7 @@ const TargetCard: React.FC<TargetCardProps> = ({
             <SelectTrigger className="bg-slate-900 border-slate-600 text-white rounded-lg mt-1">
               <SelectValue placeholder={loading ? "Loading…" : "Select target"} />
             </SelectTrigger>
-            <SelectContent className="bg-slate-800 border-slate-600">
+            <SelectContent className="bg-slate-800 border-slate-600 text-white">
               <SelectItem value="local">Local — your machine (free)</SelectItem>
               {flavors.map((f) => (
                 <SelectItem
