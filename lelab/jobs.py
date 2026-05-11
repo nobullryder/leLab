@@ -581,9 +581,10 @@ class JobNotRunningError(Exception):
 class JobRegistry:
     """Owns the registry of training jobs and their persistence.
 
-    On instantiation, scans outputs/train/ for existing job.json files and
-    rewrites any record marked 'running' to 'interrupted' (since this is a
-    fresh lelab process — we no longer own those subprocesses).
+    On instantiation, scans outputs/train/ for existing job.json files. For
+    each record marked 'running': local jobs reattach if the pid is alive
+    (else 'interrupted'); hf_cloud jobs always reattach and let the tail loop
+    drive finalisation.
     """
 
     def __init__(self, output_root: Path) -> None:
@@ -878,44 +879,26 @@ class JobRegistry:
                             record.ended_at = time.time()
                         self._write_meta(record)
                 elif record.runner == "hf_cloud" and record.hf_job_id and record.hf_flavor:
-                    # Probe HF for the live status before reattaching.
-                    try:
-                        from .utils.hf_auth import shared_hf_api
+                    # Always reattach; the tail loop is the source of truth for
+                    # terminal state. If the HF job already finished,
+                    # fetch_job_logs yields the backlog then returns, and
+                    # _finalize_terminal_status resolves the final stage so the
+                    # watchdog finalises the record. A transient HF API hiccup
+                    # at startup no longer strands the record as "interrupted".
+                    logger.info(
+                        "Re-attaching to HF Cloud job %s (hf_job_id=%s)",
+                        record.id,
+                        record.hf_job_id,
+                    )
+                    from .runners.hf_cloud import HfCloudJobRunner
 
-                        info = shared_hf_api().inspect_job(job_id=record.hf_job_id)
-                        # info.status is a JobStatus dataclass; the stage
-                        # string lives on .stage.
-                        status_obj = getattr(info, "status", None)
-                        stage = getattr(status_obj, "stage", None) if status_obj is not None else None
-                        stage_str = str(stage).upper() if stage is not None else ""
-                    except Exception as exc:
-                        logger.warning(
-                            "inspect_job failed during reattach for %s: %s",
-                            record.id,
-                            exc,
-                        )
-                        stage_str = ""
-                    terminal = {"COMPLETED", "CANCELED", "CANCELLED", "ERROR", "FAILED", "DELETED"}
-                    if stage_str and stage_str not in terminal:
-                        logger.info(
-                            "Re-attaching to HF Cloud job %s (hf_job_id=%s)",
-                            record.id,
-                            record.hf_job_id,
-                        )
-                        from .runners.hf_cloud import HfCloudJobRunner
-
-                        runner = HfCloudJobRunner(
-                            record.metrics,
-                            _job_log_path(self._output_root, record.id),
-                            record.hf_flavor,
-                        )
-                        runner.reattach(record.hf_job_id)
-                        self._runners[record.id] = runner
-                    else:
-                        record.state = "interrupted"
-                        if record.ended_at is None:
-                            record.ended_at = time.time()
-                        self._write_meta(record)
+                    runner = HfCloudJobRunner(
+                        record.metrics,
+                        _job_log_path(self._output_root, record.id),
+                        record.hf_flavor,
+                    )
+                    runner.reattach(record.hf_job_id)
+                    self._runners[record.id] = runner
                 else:
                     # Malformed running record — mark interrupted.
                     record.state = "interrupted"
