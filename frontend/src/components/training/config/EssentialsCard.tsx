@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { NumberInput } from '@/components/ui/number-input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import {
@@ -104,13 +105,11 @@ const EssentialsCard: React.FC<EssentialsCardProps> = ({ config, updateConfig, d
             <Label htmlFor="steps" className="text-slate-300">
               Training Steps
             </Label>
-            <Input
+            <NumberInput
               id="steps"
-              type="number"
               value={config.steps}
-              onChange={(e) => {
-                const v = parseInt(e.target.value);
-                if (!isNaN(v)) updateConfig('steps', v);
+              onChange={(v) => {
+                if (v !== undefined) updateConfig('steps', v);
               }}
               className="bg-slate-900 border-slate-600 text-white rounded-lg"
             />
@@ -120,13 +119,11 @@ const EssentialsCard: React.FC<EssentialsCardProps> = ({ config, updateConfig, d
             <Label htmlFor="batch_size" className="text-slate-300">
               Batch Size
             </Label>
-            <Input
+            <NumberInput
               id="batch_size"
-              type="number"
               value={config.batch_size}
-              onChange={(e) => {
-                const v = parseInt(e.target.value);
-                if (!isNaN(v)) updateConfig('batch_size', v);
+              onChange={(v) => {
+                if (v !== undefined) updateConfig('batch_size', v);
               }}
               className="bg-slate-900 border-slate-600 text-white rounded-lg"
             />

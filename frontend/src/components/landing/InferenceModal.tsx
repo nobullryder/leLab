@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/number-input";
 import { Label } from "@/components/ui/label";
 import {
   Dialog,
@@ -452,12 +453,13 @@ const InferenceModal: React.FC<Props> = ({
               <Label htmlFor="durationS" className="text-sm font-medium text-gray-300">
                 Max duration (seconds)
               </Label>
-              <Input
+              <NumberInput
                 id="durationS"
-                type="number"
                 min={1}
                 value={durationS}
-                onChange={(e) => setDurationS(parseInt(e.target.value || "0"))}
+                onChange={(v) => {
+                  if (v !== undefined) setDurationS(v);
+                }}
                 className="bg-gray-800 border-gray-700 text-white"
               />
             </div>

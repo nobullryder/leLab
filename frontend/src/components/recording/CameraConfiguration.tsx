@@ -9,6 +9,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/number-input";
 import { Camera, Plus, X, VideoOff } from "lucide-react";
 import { useApi } from "@/contexts/ApiContext";
 import { useToast } from "@/hooks/use-toast";
@@ -474,23 +475,21 @@ const CameraPreview: React.FC<CameraPreviewProps> = ({
           <div className="flex items-center gap-2">
             <span className="w-16">Resolution:</span>
             <div className="flex items-center gap-1">
-              <Input
-                type="number"
+              <NumberInput
                 value={camera.width}
-                onChange={(e) =>
-                  onUpdate({ width: parseInt(e.target.value) || 640 })
-                }
+                onChange={(v) => {
+                  if (v !== undefined) onUpdate({ width: v });
+                }}
                 className="bg-gray-800 border-gray-700 text-white text-xs h-6 px-2 w-16"
                 min="320"
                 max="1920"
               />
               <span className="flex items-center">×</span>
-              <Input
-                type="number"
+              <NumberInput
                 value={camera.height}
-                onChange={(e) =>
-                  onUpdate({ height: parseInt(e.target.value) || 480 })
-                }
+                onChange={(v) => {
+                  if (v !== undefined) onUpdate({ height: v });
+                }}
                 className="bg-gray-800 border-gray-700 text-white text-xs h-6 px-2 w-16"
                 min="240"
                 max="1080"
@@ -499,12 +498,11 @@ const CameraPreview: React.FC<CameraPreviewProps> = ({
           </div>
           <div className="flex items-center gap-2">
             <span className="w-16">FPS:</span>
-            <Input
-              type="number"
-              value={camera.fps || 30}
-              onChange={(e) =>
-                onUpdate({ fps: parseInt(e.target.value) || 30 })
-              }
+            <NumberInput
+              value={camera.fps ?? 30}
+              onChange={(v) => {
+                if (v !== undefined) onUpdate({ fps: v });
+              }}
               className="bg-gray-800 border-gray-700 text-white text-xs h-6 px-2 w-16"
               min="10"
               max="60"

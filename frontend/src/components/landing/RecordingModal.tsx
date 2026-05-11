@@ -1,6 +1,7 @@
 import React from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/number-input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -183,13 +184,14 @@ const RecordingModal: React.FC<RecordingModalProps> = ({
                   >
                     Number of Episodes
                   </Label>
-                  <Input
+                  <NumberInput
                     id="numEpisodes"
-                    type="number"
                     min="1"
                     max="100"
                     value={numEpisodes}
-                    onChange={(e) => setNumEpisodes(parseInt(e.target.value))}
+                    onChange={(v) => {
+                      if (v !== undefined) setNumEpisodes(v);
+                    }}
                     className="bg-gray-800 border-gray-700 text-white"
                   />
                 </div>
@@ -201,14 +203,13 @@ const RecordingModal: React.FC<RecordingModalProps> = ({
                     >
                       Episode duration (seconds)
                     </Label>
-                    <Input
+                    <NumberInput
                       id="episodeTimeS"
-                      type="number"
                       min="1"
                       value={episodeTimeS}
-                      onChange={(e) =>
-                        setEpisodeTimeS(parseInt(e.target.value))
-                      }
+                      onChange={(v) => {
+                        if (v !== undefined) setEpisodeTimeS(v);
+                      }}
                       className="bg-gray-800 border-gray-700 text-white"
                     />
                   </div>
@@ -219,14 +220,13 @@ const RecordingModal: React.FC<RecordingModalProps> = ({
                     >
                       Reset duration (seconds)
                     </Label>
-                    <Input
+                    <NumberInput
                       id="resetTimeS"
-                      type="number"
                       min="1"
                       value={resetTimeS}
-                      onChange={(e) =>
-                        setResetTimeS(parseInt(e.target.value))
-                      }
+                      onChange={(v) => {
+                        if (v !== undefined) setResetTimeS(v);
+                      }}
                       className="bg-gray-800 border-gray-700 text-white"
                     />
                   </div>

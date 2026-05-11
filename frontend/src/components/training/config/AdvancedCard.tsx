@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { NumberInput } from '@/components/ui/number-input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import {
@@ -96,16 +97,10 @@ const AdvancedCard: React.FC<ConfigComponentProps> = ({ config, updateConfig }) 
                 <Label htmlFor="seed" className="text-slate-300">
                   Random Seed
                 </Label>
-                <Input
+                <NumberInput
                   id="seed"
-                  type="number"
-                  value={config.seed ?? ''}
-                  onChange={(e) =>
-                    updateConfig(
-                      'seed',
-                      e.target.value ? parseInt(e.target.value) : undefined
-                    )
-                  }
+                  value={config.seed}
+                  onChange={(v) => updateConfig('seed', v)}
                   className="bg-slate-900 border-slate-600 text-white rounded-lg"
                 />
               </div>
@@ -113,13 +108,11 @@ const AdvancedCard: React.FC<ConfigComponentProps> = ({ config, updateConfig }) 
                 <Label htmlFor="num_workers" className="text-slate-300">
                   Number of Workers
                 </Label>
-                <Input
+                <NumberInput
                   id="num_workers"
-                  type="number"
                   value={config.num_workers}
-                  onChange={(e) => {
-                    const v = parseInt(e.target.value);
-                    if (!isNaN(v)) updateConfig('num_workers', v);
+                  onChange={(v) => {
+                    if (v !== undefined) updateConfig('num_workers', v);
                   }}
                   className="bg-slate-900 border-slate-600 text-white rounded-lg"
                 />
@@ -156,17 +149,12 @@ const AdvancedCard: React.FC<ConfigComponentProps> = ({ config, updateConfig }) 
                 <Label htmlFor="optimizer_lr" className="text-slate-300">
                   Learning Rate
                 </Label>
-                <Input
+                <NumberInput
                   id="optimizer_lr"
-                  type="number"
+                  integer={false}
                   step="0.0001"
-                  value={config.optimizer_lr ?? ''}
-                  onChange={(e) =>
-                    updateConfig(
-                      'optimizer_lr',
-                      e.target.value ? parseFloat(e.target.value) : undefined
-                    )
-                  }
+                  value={config.optimizer_lr}
+                  onChange={(v) => updateConfig('optimizer_lr', v)}
                   placeholder="Use policy default"
                   className="bg-slate-900 border-slate-600 text-white rounded-lg"
                 />
@@ -175,17 +163,12 @@ const AdvancedCard: React.FC<ConfigComponentProps> = ({ config, updateConfig }) 
                 <Label htmlFor="optimizer_weight_decay" className="text-slate-300">
                   Weight Decay
                 </Label>
-                <Input
+                <NumberInput
                   id="optimizer_weight_decay"
-                  type="number"
+                  integer={false}
                   step="0.0001"
-                  value={config.optimizer_weight_decay ?? ''}
-                  onChange={(e) =>
-                    updateConfig(
-                      'optimizer_weight_decay',
-                      e.target.value ? parseFloat(e.target.value) : undefined
-                    )
-                  }
+                  value={config.optimizer_weight_decay}
+                  onChange={(v) => updateConfig('optimizer_weight_decay', v)}
                   placeholder="Use policy default"
                   className="bg-slate-900 border-slate-600 text-white rounded-lg"
                 />
@@ -194,17 +177,12 @@ const AdvancedCard: React.FC<ConfigComponentProps> = ({ config, updateConfig }) 
                 <Label htmlFor="optimizer_grad_clip_norm" className="text-slate-300">
                   Gradient Clipping
                 </Label>
-                <Input
+                <NumberInput
                   id="optimizer_grad_clip_norm"
-                  type="number"
+                  integer={false}
                   step="0.0001"
-                  value={config.optimizer_grad_clip_norm ?? ''}
-                  onChange={(e) =>
-                    updateConfig(
-                      'optimizer_grad_clip_norm',
-                      e.target.value ? parseFloat(e.target.value) : undefined
-                    )
-                  }
+                  value={config.optimizer_grad_clip_norm}
+                  onChange={(v) => updateConfig('optimizer_grad_clip_norm', v)}
                   placeholder="Use policy default"
                   className="bg-slate-900 border-slate-600 text-white rounded-lg"
                 />
@@ -222,13 +200,11 @@ const AdvancedCard: React.FC<ConfigComponentProps> = ({ config, updateConfig }) 
                 <Label htmlFor="log_freq" className="text-slate-300">
                   Log Frequency
                 </Label>
-                <Input
+                <NumberInput
                   id="log_freq"
-                  type="number"
                   value={config.log_freq}
-                  onChange={(e) => {
-                    const v = parseInt(e.target.value);
-                    if (!isNaN(v)) updateConfig('log_freq', v);
+                  onChange={(v) => {
+                    if (v !== undefined) updateConfig('log_freq', v);
                   }}
                   className="bg-slate-900 border-slate-600 text-white rounded-lg"
                 />
@@ -237,13 +213,11 @@ const AdvancedCard: React.FC<ConfigComponentProps> = ({ config, updateConfig }) 
                 <Label htmlFor="save_freq" className="text-slate-300">
                   Save Frequency
                 </Label>
-                <Input
+                <NumberInput
                   id="save_freq"
-                  type="number"
                   value={config.save_freq}
-                  onChange={(e) => {
-                    const v = parseInt(e.target.value);
-                    if (!isNaN(v)) updateConfig('save_freq', v);
+                  onChange={(v) => {
+                    if (v !== undefined) updateConfig('save_freq', v);
                   }}
                   className="bg-slate-900 border-slate-600 text-white rounded-lg"
                 />
