@@ -14,6 +14,13 @@ export interface LogLine {
   message: string;
 }
 
+export type MetricsHistoryPoint = {
+  step: number;
+  loss: number | null;
+  lr: number | null;
+  grad_norm: number | null;
+};
+
 // Mirror of the backend TrainingRequest. The frontend doesn't send all of
 // these; defaults on the server fill in the rest.
 export interface TrainingRequest {
@@ -131,6 +138,17 @@ export async function getJobLogFile(
   await expectOk(r, "Get job log file");
   const body = await r.json();
   return body.logs;
+}
+
+export async function getJobMetricsHistory(
+  baseUrl: string,
+  fetcher: Fetcher,
+  id: string,
+): Promise<MetricsHistoryPoint[]> {
+  const r = await fetcher(`${baseUrl}/jobs/${id}/metrics-history`);
+  await expectOk(r, "Get job metrics history");
+  const body = await r.json();
+  return body.points;
 }
 
 export async function startTrainingJob(
