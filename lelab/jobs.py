@@ -962,10 +962,9 @@ class JobRegistry:
                             record.ended_at = time.time()
                         self._write_meta(record)
                 elif record.runner == "hf_cloud" and record.hf_job_id and record.hf_flavor:
-                    # Always reattach; the tail loop is the source of truth for
-                    # terminal state. If the HF job already finished,
-                    # fetch_job_logs yields the backlog then returns, and
-                    # _finalize_terminal_status resolves the final stage so the
+                    # Always reattach; the status poller is the source of truth
+                    # for terminal state. If the HF job already finished, the
+                    # next inspect_job call resolves the final stage and the
                     # watchdog finalises the record. A transient HF API hiccup
                     # at startup no longer strands the record as "interrupted".
                     logger.info(

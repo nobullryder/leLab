@@ -150,6 +150,26 @@ sys.exit(rc)
 # our typical ACT/SmolVLA runs on t4-small with comfortable headroom.
 HF_JOB_TIMEOUT = "2h"
 
+# Cadence at which the status poller hits inspect_job. inspect_job is the
+# authoritative source for job liveness; the log stream is best-effort and
+# may drop during long runs (NAT eviction, laptop sleep, proxy idle timeout)
+# without the job actually ending.
+_STATUS_POLL_INTERVAL_S = 5.0
+
+# Stages we treat as terminal. Allowlist (not "anything except RUNNING") so
+# freshly-submitted jobs in transient stages like QUEUED / BUILDING / STARTING
+# aren't mistaken for failures before they get a chance to run.
+_TERMINAL_STAGES = frozenset({"COMPLETED", "CANCELED", "ERROR", "DELETED"})
+
+# How long _tail_loop waits before reconnecting after a clean stream end
+# (gives the status poller a chance to confirm the job is actually terminal,
+# so we don't reconnect and re-replay the entire buffered log).
+_TAIL_CLEAN_END_WAIT_S = 15.0
+
+# How long _tail_loop waits before reconnecting after an SSE exception
+# (transient network blip during a long training).
+_TAIL_RECONNECT_BACKOFF_S = 5.0
+
 
 def resolve_wandb_api_key() -> str | None:
     """Look up the host's wandb API key for forwarding to a cloud job.
@@ -192,6 +212,11 @@ class HfCloudJobRunner:
         self._hf_job_url: str | None = None
         self._log_queue: Queue[LogLine] = Queue()
         self._tail_thread: threading.Thread | None = None
+        # _status_thread polls inspect_job and is the sole writer of
+        # _terminal_status (except for stop(), which pre-sets CANCELED).
+        # Decoupling liveness from the log stream means a flaky SSE
+        # connection no longer makes us declare a running job as failed.
+        self._status_thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._log_file = None  # type: ignore[assignment]
         # Cached terminal status once the job ends; None while live.
@@ -200,6 +225,9 @@ class HfCloudJobRunner:
         # registry can surface it to the UI instead of a synthetic exit code.
         self._terminal_message: str | None = None
         self._wandb_run_url: str | None = None
+        # Count of log lines processed across (possibly multiple) SSE
+        # connections, so reconnects skip the replayed prefix.
+        self._lines_processed: int = 0
 
     def start(self, job_id: str, config: TrainingRequest, output_dir: str) -> None:
         if self._hf_job_id is not None:
@@ -266,26 +294,41 @@ class HfCloudJobRunner:
         self._hf_job_id = job.id
         self._hf_job_url = getattr(job, "url", None)
 
-        self._tail_thread = threading.Thread(
-            target=self._tail_loop, name=f"hf-job-{job_id}-logs", daemon=True
-        )
-        self._tail_thread.start()
+        self._start_worker_threads(job_id)
 
     def reattach(self, hf_job_id: str) -> None:
         """Take over an existing HF job after a process restart.
 
         Skips submission; just opens the log file in append mode and starts
-        the log-tailing thread. The watchdog will finalise based on inspect_job.
+        the log-tailing + status-polling threads.
         """
         if self._hf_job_id is not None:
             raise RuntimeError("HfCloudJobRunner already started")
         self._hf_job_id = hf_job_id
         self._log_file_path.parent.mkdir(parents=True, exist_ok=True)
         self._log_file = self._log_file_path.open("a", buffering=1)
+        self._start_worker_threads(f"{hf_job_id}-reattach")
+
+    def _start_worker_threads(self, label: str) -> None:
+        """Start the log tail and status poll threads. Both run for the
+        life of the runner; the status poller is what marks the job terminal."""
         self._tail_thread = threading.Thread(
-            target=self._tail_loop, name=f"hf-job-{hf_job_id}-logs-reattach", daemon=True
+            target=self._tail_loop, name=f"hf-job-{label}-logs", daemon=True
         )
         self._tail_thread.start()
+        self._status_thread = threading.Thread(
+            target=self._status_poll_loop, name=f"hf-job-{label}-status", daemon=True
+        )
+        self._status_thread.start()
+
+    def _set_terminal(self, status: str, message: str | None = None) -> None:
+        """Record the job's terminal stage. Idempotent. Wakes the tail loop."""
+        if self._terminal_status is not None:
+            return
+        self._terminal_status = status
+        if message:
+            self._terminal_message = message
+        self._stop_event.set()
 
     def _log_line(self, message: str) -> None:
         """Append a wrapper-style line to the job's log file."""
@@ -329,23 +372,26 @@ class HfCloudJobRunner:
         self._log_line(f"[upload] dataset {repo_id} uploaded.")
 
     def _tail_loop(self) -> None:
-        """Consume HfApi.fetch_job_logs until it returns. Tee each line to
-        the log file and the in-memory queue, and update metrics inline.
-
-        The log stream IS the event source for terminal state: when the
-        generator returns (or retries exhaust), the job is over and we
-        resolve the final stage via a single inspect_job call. The
-        registry watchdog never polls inspect_job; it just reads the
-        in-memory _terminal_status that this loop sets.
+        """Stream HfApi.fetch_job_logs, teeing each line to disk and the
+        in-memory queue. Reconnects on stream end or transient error while
+        the status poller still says the job is alive — SSE death is no
+        longer fatal. Exits when _stop_event is set (status poller saw a
+        terminal stage, or stop() was called).
         """
         assert self._hf_job_id is not None
         try:
-            retries = 0
             while not self._stop_event.is_set():
+                clean_end = False
                 try:
+                    seen = 0
                     for raw in self._api.fetch_job_logs(job_id=self._hf_job_id, follow=True):
                         if self._stop_event.is_set():
                             return
+                        seen += 1
+                        # Skip the replayed prefix from a reconnect.
+                        if seen <= self._lines_processed:
+                            continue
+                        self._lines_processed = seen
                         stripped = raw.rstrip()
                         if not stripped:
                             continue
@@ -364,71 +410,50 @@ class HfCloudJobRunner:
                             with contextlib.suppress(Empty):
                                 self._log_queue.get_nowait()
                         self._log_queue.put(log_line)
-                    # Generator returned cleanly — job ended.
-                    return
+                    clean_end = True
                 except Exception as exc:
-                    retries += 1
-                    if retries > 3:
-                        logger.warning(
-                            "HF log tail gave up after 3 retries for job %s: %s",
-                            self._hf_job_id,
-                            exc,
-                        )
-                        return
-                    logger.info("HF log tail disconnected (retry %d/3): %s", retries, exc)
-                    self._stop_event.wait(2**retries)
+                    logger.info("HF log tail disconnected, will reconnect: %s", exc)
+
+                wait_s = _TAIL_CLEAN_END_WAIT_S if clean_end else _TAIL_RECONNECT_BACKOFF_S
+                if self._stop_event.wait(wait_s):
+                    return
         finally:
-            # Tail thread is exiting for any reason (clean stream end, retry
-            # exhaustion, stop()). Resolve the terminal stage once so the
-            # watchdog can finalise the record without polling inspect_job.
-            self._finalize_terminal_status()
             if self._log_file is not None:
                 with contextlib.suppress(Exception):
                     self._log_file.close()
                 self._log_file = None
 
-    def _finalize_terminal_status(self) -> None:
-        """Resolve the job's terminal stage after the log stream ends.
+    def _status_poll_loop(self) -> None:
+        """Poll inspect_job until the job reaches a terminal stage.
 
-        HF Jobs can take several seconds to flip the platform-side stage
-        from RUNNING to a terminal value (COMPLETED/ERROR/CANCELED) after
-        the container exits, so we poll until we see a non-RUNNING stage
-        or hit the deadline. Idempotent — stop() pre-sets CANCELED so we
-        short-circuit."""
-        if self._terminal_status is not None:
-            return
-        if self._hf_job_id is None:
-            return
-        deadline = time.monotonic() + 60.0
-        stage_str: str | None = None
-        message: str | None = None
-        while time.monotonic() < deadline:
+        Sole writer of _terminal_status under normal operation. Decoupled
+        from the log stream: a dropped SSE connection during a long run
+        (NAT eviction, sleep, proxy idle timeout) no longer causes LeLab
+        to declare a still-running job as failed.
+        """
+        assert self._hf_job_id is not None
+        while not self._stop_event.is_set():
             try:
                 info = self._api.inspect_job(job_id=self._hf_job_id)
                 status_obj = getattr(info, "status", None)
                 stage = getattr(status_obj, "stage", None) if status_obj is not None else None
                 if stage is not None:
                     stage_str = str(stage).upper()
-                    message = getattr(status_obj, "message", None)
-                if stage_str and stage_str != "RUNNING":
-                    break
+                    if stage_str in _TERMINAL_STAGES:
+                        msg = getattr(status_obj, "message", None)
+                        self._set_terminal(stage_str, str(msg) if msg else None)
+                        return
             except Exception as exc:
-                logger.warning("inspect_job at finalisation failed for %s: %s", self._hf_job_id, exc)
-            if self._stop_event.wait(1.0):
-                break
-        if message:
-            self._terminal_message = str(message)
-        self._terminal_status = stage_str or "ERROR"
+                logger.warning("inspect_job poll failed for %s: %s", self._hf_job_id, exc)
+            if self._stop_event.wait(_STATUS_POLL_INTERVAL_S):
+                return
 
     def stop(self) -> None:
         if self._hf_job_id is None:
             return
-        # Pre-set CANCELED so the tail loop's _finalize_terminal_status is
-        # a no-op and the watchdog finalises as canceled regardless of
-        # whether inspect_job can be reached.
-        if self._terminal_status is None:
-            self._terminal_status = "CANCELED"
-        self._stop_event.set()
+        # Pre-set CANCELED so the watchdog finalises as canceled regardless
+        # of whether the status poller observed a terminal stage first.
+        self._set_terminal("CANCELED")
         try:
             self._api.cancel_job(job_id=self._hf_job_id)
         except Exception as exc:
@@ -436,8 +461,7 @@ class HfCloudJobRunner:
             logger.info("cancel_job(%s) ignored: %s", self._hf_job_id, exc)
 
     def is_running(self) -> bool:
-        # State is driven by the log stream: _terminal_status is None
-        # until _tail_loop's finally block resolves the final stage.
+        # Liveness is driven by _status_poll_loop's inspect_job calls.
         if self._hf_job_id is None:
             return False
         return self._terminal_status is None
@@ -468,8 +492,8 @@ class HfCloudJobRunner:
     def terminal_message(self) -> str | None:
         """Status.message captured when the job reached a terminal stage.
 
-        Set by the most recent is_running() call that observed a terminal
-        stage. Used by the registry watchdog to surface platform reasons
-        like 'Job timeout' rather than a synthetic 'exit code 1'.
+        Set by _status_poll_loop when it observes a terminal stage. Used by
+        the registry watchdog to surface platform reasons like 'Job timeout'
+        rather than a synthetic 'exit code 1'.
         """
         return self._terminal_message
