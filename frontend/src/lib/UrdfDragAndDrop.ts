@@ -10,7 +10,7 @@
  * @param dataTransfer The DataTransfer object from the drop event
  * @returns A promise that resolves with the file structure object
  */
-export function dataTransferToFiles(
+function dataTransferToFiles(
   dataTransfer: DataTransfer
 ): Promise<Record<string, File>> {
   if (!(dataTransfer instanceof DataTransfer)) {

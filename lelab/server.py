@@ -408,7 +408,7 @@ async def websocket_endpoint(websocket: WebSocket):
 @app.post("/start-recording")
 def start_recording(request: RecordingRequest):
     """Start a dataset recording session"""
-    return handle_start_recording(request, manager)
+    return handle_start_recording(request)
 
 
 @app.post("/stop-recording")

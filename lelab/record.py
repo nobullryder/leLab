@@ -158,7 +158,7 @@ def create_record_config(request: RecordingRequest) -> RecordConfig:
     return record_config
 
 
-def handle_start_recording(request: RecordingRequest, websocket_manager=None) -> dict[str, Any]:
+def handle_start_recording(request: RecordingRequest) -> dict[str, Any]:
     """Handle start recording request by using the existing record() function"""
     global \
         recording_active, \
