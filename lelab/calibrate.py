@@ -378,6 +378,7 @@ class CalibrationManager:
         )
 
         self._recording_active = True
+        prev_positions: dict[str, int] = dict(self._start_positions)
 
         # Record positions until user completes step
         while not self._step_complete.is_set() and not self.stop_calibration:
@@ -408,6 +409,13 @@ class CalibrationManager:
                     # Only update if we have valid readings
                     if valid_positions:
                         for motor, pos in valid_positions.items():
+                            if motor in prev_positions and abs(pos - prev_positions[motor]) > 2000:
+                                raise CalibrationDiscontinuityError(
+                                    "Motor discontinuity detected. Make sure to start "
+                                    "the calibration with the robot in a middle position "
+                                    "- all joints in the middle of their ranges."
+                                )
+                            prev_positions[motor] = pos
                             if motor in self._mins:
                                 self._mins[motor] = min(self._mins[motor], pos)
                                 self._maxes[motor] = max(self._maxes[motor], pos)
