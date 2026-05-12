@@ -28,6 +28,7 @@ import logging
 import os
 import re
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -180,7 +181,7 @@ def handle_start_inference(request: InferenceRequest) -> dict[str, Any]:
         policy_path = _resolve_policy_path(request.policy_ref)
 
         cmd = [
-            "python",
+            sys.executable,
             "-m",
             "lerobot.scripts.lerobot_rollout",
             "--strategy.type=base",
