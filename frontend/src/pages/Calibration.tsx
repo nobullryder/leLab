@@ -77,6 +77,7 @@ const Calibration = () => {
   const { baseUrl, fetchWithHeaders } = useApi();
 
   const consoleRef = useRef<HTMLDivElement>(null);
+  const demoVideoRef = useRef<HTMLDivElement>(null);
 
   const [deviceType, setDeviceType] = useState<string>("teleop");
   const [port, setPort] = useState<string>("");
@@ -793,7 +794,10 @@ const Calibration = () => {
                   </Alert>
                 )}
 
-              <div className="bg-slate-900/50 p-4 rounded-lg border border-slate-700">
+              <div
+                ref={demoVideoRef}
+                className="bg-slate-900/50 p-4 rounded-lg border border-slate-700"
+              >
                 <h4 className="font-semibold mb-3 text-slate-200">
                   Calibration Demo:
                 </h4>
