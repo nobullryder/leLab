@@ -41,6 +41,16 @@ from lerobot.utils.utils import init_logging
 logger = logging.getLogger(__name__)
 
 
+class CalibrationDiscontinuityError(Exception):
+    """Raised when a motor position reading jumps across the encoder wrap-around.
+
+    The Feetech encoder is 12-bit (0-4095); if calibration starts with a joint
+    near a boundary, moving it past 0 or 4095 produces a single-frame delta of
+    ~4096. The user-side fix is to start with all joints in the middle of their
+    range, as documented in the SO-101 docs.
+    """
+
+
 @dataclass
 class CalibrationStatus:
     """Status information for calibration process"""
