@@ -129,9 +129,6 @@ class StartTrainingBody(BaseModel):
 _flavors_cache: dict = {"data": None, "fetched_at": 0.0}
 _FLAVOR_CACHE_TTL_SECONDS = 300.0
 
-# Global variables for WebSocket connections
-connected_websockets: list[WebSocket] = []
-
 
 app = FastAPI()
 

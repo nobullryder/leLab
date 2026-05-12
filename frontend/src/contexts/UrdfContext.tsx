@@ -47,13 +47,6 @@ export type UrdfContextType = {
   // Animation configuration management
   currentAnimationConfig: RobotAnimationConfig | null;
   setCurrentAnimationConfig: (config: RobotAnimationConfig | null) => void;
-
-  // These properties are kept for backward compatibility but are considered
-  // implementation details and should not be used directly in components.
-  // TODO: Remove these next three once the time is right
-  parsedRobotData: UrdfData | null; // Data from parsed Urdf
-  customModelName: string;
-  customModelDescription: string;
 };
 
 // Create the context
@@ -87,9 +80,6 @@ export const UrdfProvider: React.FC<UrdfProviderProps> = ({ children }) => {
   // New state for centralized robot data management
   const [isDefaultModel, setIsDefaultModel] = useState(true);
   const [parsedRobotData, setParsedRobotData] = useState<UrdfData | null>(null);
-  const [customModelName, setCustomModelName] = useState<string>("");
-  const [customModelDescription, setCustomModelDescription] =
-    useState<string>("");
   const [urdfContent, setUrdfContent] = useState<string | null>(null);
 
   // New state for animation configuration
@@ -154,8 +144,6 @@ export const UrdfProvider: React.FC<UrdfProviderProps> = ({ children }) => {
   // Reset to default model
   const resetToDefaultModel = useCallback(() => {
     setIsDefaultModel(true);
-    setCustomModelName("");
-    setCustomModelDescription("");
     setParsedRobotData(null);
     setUrdfContent(null);
     setCurrentAnimationConfig(null);
@@ -195,38 +183,23 @@ export const UrdfProvider: React.FC<UrdfProviderProps> = ({ children }) => {
         setIsDefaultModel(false);
 
         if (result.parsedData) {
-          // Create a copy of the parsed data with any missing fields filled from our state
+          // Create a copy of the parsed data with any missing fields filled in
           const enhancedParsedData: UrdfData = {
             ...result.parsedData,
           };
 
-          // Set the name if available, or use the provided modelName as fallback
-          if (result.parsedData.name) {
-            setCustomModelName(result.parsedData.name);
-          } else if (result.modelName) {
-            setCustomModelName(result.modelName);
-            // Also update the parsed data with this name to be consistent
+          if (!result.parsedData.name && result.modelName) {
             enhancedParsedData.name = result.modelName;
           }
 
-          // Set description if available
-          if (result.parsedData.description) {
-            setCustomModelDescription(result.parsedData.description);
-          } else {
-            // If no description in parsed data, set a default one
-            const defaultDesc =
+          if (!result.parsedData.description) {
+            enhancedParsedData.description =
               "A detailed 3D model of a robotic system with articulated joints and components.";
-            enhancedParsedData.description = defaultDesc;
-            setCustomModelDescription(defaultDesc);
           }
 
-          // Update parsed data with the enhanced version
           setParsedRobotData(enhancedParsedData);
         } else if (result.modelName) {
-          // Only have model name, no parsed data
-          setCustomModelName(result.modelName);
-
-          // Create a minimal UrdfData object with at least the name
+          // Only have model name, no parsed data — create a minimal UrdfData
           const minimalData: UrdfData = {
             name: result.modelName,
             description:
@@ -317,9 +290,6 @@ export const UrdfProvider: React.FC<UrdfProviderProps> = ({ children }) => {
             "A detailed 3D model of a robotic system with articulated joints and components.",
         };
 
-        // Update our state
-        setCustomModelName(modelDisplayName);
-        setCustomModelDescription(basicData.description);
         setParsedRobotData(basicData);
 
         toast.success("Urdf model loaded successfully", {
@@ -378,7 +348,6 @@ export const UrdfProvider: React.FC<UrdfProviderProps> = ({ children }) => {
 
       // Update our state immediately even before parsing
       setIsDefaultModel(false);
-      setCustomModelName(modelName);
 
       // Show a toast notification that we're loading the model
       toast.info(`Loading model: ${modelName}`, {
@@ -456,7 +425,6 @@ export const UrdfProvider: React.FC<UrdfProviderProps> = ({ children }) => {
 
               // Immediately update model state
               setIsDefaultModel(false);
-              setCustomModelName(modelName);
 
               // Process the Urdf file for content storage
               if (files[availableModels[0]]) {
@@ -495,8 +463,6 @@ export const UrdfProvider: React.FC<UrdfProviderProps> = ({ children }) => {
                       "A detailed 3D model of a robotic system with articulated joints and components.",
                   };
 
-                  // Update our state
-                  setCustomModelDescription(basicData.description);
                   setParsedRobotData(basicData);
 
                   // Notify callbacks with all the information
@@ -544,7 +510,6 @@ export const UrdfProvider: React.FC<UrdfProviderProps> = ({ children }) => {
 
               // Update the state even without a blob URL
               setIsDefaultModel(false);
-              setCustomModelName(modelName);
 
               // Notify callbacks
               notifyUrdfCallbacks({
@@ -619,9 +584,6 @@ export const UrdfProvider: React.FC<UrdfProviderProps> = ({ children }) => {
     currentRobotData,
     isDefaultModel,
     setIsDefaultModel,
-    parsedRobotData,
-    customModelName,
-    customModelDescription,
     resetToDefaultModel,
     urdfContent,
 

@@ -2,7 +2,6 @@ import {
   LoadingManager,
   MeshPhongMaterial,
   Mesh,
-  Color,
   Object3D,
   Group,
   BoxGeometry,
@@ -99,13 +98,4 @@ export const loadMeshFile = (
     default:
       done(null, new Error(`Unsupported file format: ${ext}`));
   }
-};
-
-/**
- * Creates a color in THREE.js format from a CSS color string
- * @param color The CSS color string
- * @returns A THREE.js Color
- */
-export const createColor = (color: string): Color => {
-  return new Color(color);
 };

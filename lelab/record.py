@@ -14,7 +14,6 @@
 
 import logging
 import shutil
-from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -507,22 +506,6 @@ def handle_recording_status() -> dict[str, Any]:
         status["session_elapsed_seconds"] = session_end_elapsed_seconds
 
     return status
-
-
-# For backward compatibility, in case we want to add frame modifications later
-def add_custom_frame_modifier(modifier_func: Callable[[dict[str, Any]], dict[str, Any]]):
-    """Placeholder for future custom frame modifications"""
-    logger.info("Custom frame modifier registered (not yet implemented in simplified version)")
-
-
-def add_timestamp_modifier():
-    """Placeholder for timestamp modifier"""
-    logger.info("Timestamp modifier registered (not yet implemented in simplified version)")
-
-
-def add_debug_info_modifier():
-    """Placeholder for debug info modifier"""
-    logger.info("Debug info modifier registered (not yet implemented in simplified version)")
 
 
 def handle_get_dataset_info(request: DatasetInfoRequest) -> dict[str, Any]:
