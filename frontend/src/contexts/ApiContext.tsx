@@ -1,4 +1,4 @@
-import React, { createContext, useContext, ReactNode, useState, useCallback } from "react";
+import React, { createContext, useContext, ReactNode, useState, useCallback, useMemo } from "react";
 
 interface ApiContextType {
   baseUrl: string;
@@ -47,11 +47,12 @@ export const ApiProvider: React.FC<{ children: ReactNode }> = ({
     });
   }, []);
 
-  return (
-    <ApiContext.Provider value={{ baseUrl, wsBaseUrl, fetchWithHeaders }}>
-      {children}
-    </ApiContext.Provider>
+  const value = useMemo(
+    () => ({ baseUrl, wsBaseUrl, fetchWithHeaders }),
+    [baseUrl, wsBaseUrl, fetchWithHeaders]
   );
+
+  return <ApiContext.Provider value={value}>{children}</ApiContext.Provider>;
 };
 
 export const useApi = (): ApiContextType => {

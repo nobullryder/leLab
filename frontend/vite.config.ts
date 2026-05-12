@@ -8,12 +8,18 @@ export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
     port: 8080,
-    // Proxy removed - the React app now handles API URLs directly through the ApiContext
-    // This provides full flexibility for localhost/ngrok switching at runtime
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(
     Boolean
   ),
+  // Strip console.log / debug / info in production minification; keep
+  // console.warn and console.error for observability of real problems.
+  esbuild: {
+    pure:
+      mode === "production"
+        ? ["console.log", "console.debug", "console.info"]
+        : [],
+  },
   preview: {
     allowedHosts: ["lerobot-lelab.hf.space"],
   },

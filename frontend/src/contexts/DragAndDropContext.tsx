@@ -2,6 +2,7 @@ import React, {
   createContext,
   useState,
   useEffect,
+  useMemo,
   ReactNode,
   useCallback,
 } from "react";
@@ -59,26 +60,16 @@ export const DragAndDropProvider: React.FC<DragAndDropProviderProps> = ({
       e.stopPropagation();
       setIsDragging(false);
 
-      console.log("🔄 DragAndDropContext: Drop event detected");
-
-      if (!e.dataTransfer || !urdfProcessor) {
-        console.error("❌ No dataTransfer or urdfProcessor available");
-        return;
-      }
+      if (!e.dataTransfer || !urdfProcessor) return;
 
       try {
-        console.log("🔍 Processing dropped files with urdfProcessor");
-
-        // Process files first
         const { availableModels, files } = await processDroppedFiles(
           e.dataTransfer,
           urdfProcessor
         );
-
-        // Delegate further processing to UrdfContext
         await processUrdfFiles(files, availableModels);
       } catch (error) {
-        console.error("❌ Error in handleDrop:", error);
+        console.error("Error in handleDrop:", error);
       }
     },
     [urdfProcessor, processUrdfFiles]
@@ -99,14 +90,13 @@ export const DragAndDropProvider: React.FC<DragAndDropProviderProps> = ({
     };
   }, [handleDrop]); // Re-register when handleDrop changes
 
+  const value = useMemo(
+    () => ({ isDragging, setIsDragging, handleDrop }),
+    [isDragging, handleDrop]
+  );
+
   return (
-    <DragAndDropContext.Provider
-      value={{
-        isDragging,
-        setIsDragging,
-        handleDrop,
-      }}
-    >
+    <DragAndDropContext.Provider value={value}>
       {children}
       {isDragging && (
         <div className="fixed inset-0 bg-primary/10 pointer-events-none z-50 flex items-center justify-center">

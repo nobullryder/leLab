@@ -1,3 +1,5 @@
+import { Fetcher, apiRequest } from "./apiClient";
+
 export type DatasetSource = "local" | "hub" | "both";
 
 export interface DatasetItem {
@@ -7,13 +9,13 @@ export interface DatasetItem {
   source: DatasetSource;
 }
 
-type Fetcher = (url: string, options?: RequestInit) => Promise<Response>;
-
 export async function listDatasets(
   baseUrl: string,
   fetcher: Fetcher,
+  signal?: AbortSignal,
 ): Promise<DatasetItem[]> {
-  const r = await fetcher(`${baseUrl}/datasets`);
-  if (!r.ok) throw new Error(`GET /datasets failed: ${r.status}`);
-  return r.json();
+  return apiRequest<DatasetItem[]>(baseUrl, fetcher, "/datasets", {
+    signal,
+    action: "List datasets",
+  });
 }

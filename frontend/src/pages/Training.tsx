@@ -36,6 +36,7 @@ import InferenceModal from "@/components/landing/InferenceModal";
 import { useRobots } from "@/hooks/useRobots";
 
 const POLL_INTERVAL_MS = 1000;
+const MAX_LOG_LINES = 5000;
 
 function jobToStatus(job: JobRecord | null, isStarting: boolean): TrainingStatus {
   // Adapter so MonitoringStats can keep its current prop shape.
@@ -342,7 +343,12 @@ const MonitoringMode: React.FC<{ jobId: string }> = ({ jobId }) => {
     };
   }, [baseUrl, fetchWithHeaders, jobId]);
 
-  // Poll checkpoints — every 5s while the job is running, then once on stop.
+  // Read latest job state from a ref so the polling intervals below stay
+  // stable instead of tearing down/rebuilding on every state transition.
+  const jobStateRef = useRef(job?.state);
+  jobStateRef.current = job?.state;
+
+  // Poll checkpoints — every 5s while the job is running.
   useEffect(() => {
     let cancelled = false;
     const tick = () => {
@@ -369,17 +375,16 @@ const MonitoringMode: React.FC<{ jobId: string }> = ({ jobId }) => {
     tick();
     const id = setInterval(() => {
       if (cancelled) return;
-      // Once the job is no longer running we don't need to keep polling.
-      if (job?.state && job.state !== "running") return;
+      if (jobStateRef.current && jobStateRef.current !== "running") return;
       tick();
     }, 5000);
     return () => {
       cancelled = true;
       clearInterval(id);
     };
-  }, [baseUrl, fetchWithHeaders, jobId, job?.state]);
+  }, [baseUrl, fetchWithHeaders, jobId]);
 
-  // Poll the job + its logs while running.
+  // Poll the job + its logs while running. Caps log lines to avoid unbounded growth.
   useEffect(() => {
     let cancelled = false;
     const tick = async () => {
@@ -390,7 +395,12 @@ const MonitoringMode: React.FC<{ jobId: string }> = ({ jobId }) => {
         if (next.state === "running") {
           const newLogs = await getJobLogs(baseUrl, fetchWithHeaders, jobId);
           if (!cancelled && newLogs.length > 0) {
-            setLogs((prev) => [...prev, ...newLogs]);
+            setLogs((prev) => {
+              const merged = [...prev, ...newLogs];
+              return merged.length > MAX_LOG_LINES
+                ? merged.slice(merged.length - MAX_LOG_LINES)
+                : merged;
+            });
           }
         }
       } catch (e) {
@@ -399,16 +409,15 @@ const MonitoringMode: React.FC<{ jobId: string }> = ({ jobId }) => {
     };
     tick();
     const id = setInterval(() => {
-      if (!cancelled) {
-        if (job?.state && job.state !== "running") return; // pause polling once finished
-        tick();
-      }
+      if (cancelled) return;
+      if (jobStateRef.current && jobStateRef.current !== "running") return;
+      tick();
     }, POLL_INTERVAL_MS);
     return () => {
       cancelled = true;
       clearInterval(id);
     };
-  }, [baseUrl, fetchWithHeaders, jobId, job?.state]);
+  }, [baseUrl, fetchWithHeaders, jobId]);
 
   // Auto-scroll the log panel as new lines arrive.
   useEffect(() => {

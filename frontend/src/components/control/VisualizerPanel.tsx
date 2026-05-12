@@ -1,10 +1,8 @@
-
 import React from "react";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 import UrdfViewer from "../UrdfViewer";
-import UrdfProcessorInitializer from "../UrdfProcessorInitializer";
 import Logo from "@/components/Logo";
 
 interface VisualizerPanelProps {
@@ -38,7 +36,6 @@ const VisualizerPanel: React.FC<VisualizerPanelProps> = ({
           <h2 className="text-xl font-medium text-gray-200">Teleoperation</h2>
         </div>
         <div className="flex-1 bg-black rounded border border-gray-800 min-h-[50vh] lg:min-h-0">
-          <UrdfProcessorInitializer />
           <UrdfViewer />
         </div>
       </div>

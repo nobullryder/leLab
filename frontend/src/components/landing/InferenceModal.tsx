@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NumberInput } from "@/components/ui/number-input";
@@ -31,53 +31,15 @@ import {
 } from "@/lib/checkpointsApi";
 import { startInference } from "@/lib/inferenceApi";
 import CheckpointDropdown from "@/components/jobs/CheckpointDropdown";
+import { useAvailableCameras } from "@/hooks/useAvailableCameras";
+import { useCameraStream } from "@/hooks/useCameraStream";
 
-interface AvailableCamera {
-  index: number;
-  name: string;
-  deviceId: string;
-  available: boolean;
-}
-
-const CameraPreview: React.FC<{ deviceId: string; paused: boolean }> = ({
+const CameraThumbnail: React.FC<{ deviceId: string; paused: boolean }> = ({
   deviceId,
   paused,
 }) => {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [error, setError] = useState(false);
-
-  useEffect(() => {
-    if (paused || !deviceId) {
-      if (!deviceId) setError(true);
-      return;
-    }
-    let cancelled = false;
-    let stream: MediaStream | null = null;
-    setError(false);
-    (async () => {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { deviceId: { exact: deviceId } },
-        });
-        if (cancelled) {
-          stream.getTracks().forEach((t) => t.stop());
-          return;
-        }
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play().catch(() => {});
-        }
-      } catch {
-        setError(true);
-      }
-    })();
-    return () => {
-      cancelled = true;
-      if (stream) stream.getTracks().forEach((t) => t.stop());
-    };
-  }, [deviceId, paused]);
-
-  if (paused || error || !deviceId) {
+  const { videoRef, hasError } = useCameraStream(deviceId, paused);
+  if (paused || hasError || !deviceId) {
     return (
       <div className="w-32 h-24 bg-gray-800 rounded border border-gray-700 flex flex-col items-center justify-center">
         <VideoOff className="w-5 h-5 text-gray-500 mb-1" />
@@ -131,7 +93,7 @@ const InferenceModal: React.FC<Props> = ({
 
   // Per expected camera name → user-selected physical camera index (or null).
   const [cameraBindings, setCameraBindings] = useState<Record<string, number | null>>({});
-  const [availableCameras, setAvailableCameras] = useState<AvailableCamera[]>([]);
+  const { cameras: availableCameras } = useAvailableCameras({ enabled: open });
 
   // Load checkpoints when modal opens.
   useEffect(() => {
@@ -155,75 +117,6 @@ const InferenceModal: React.FC<Props> = ({
     };
   }, [open, baseUrl, fetchWithHeaders, jobId]);
 
-  // Load the user's available cameras when the modal opens, and merge each
-  // backend cv2 index with the matching browser deviceId so we can render a
-  // live preview alongside the bound dropdowns. Also refreshes on USB
-  // hotplug so cameras plugged in after `lelab` started show up.
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    const refresh = async () => {
-      try {
-        // Need a permission grant before enumerateDevices() returns labels.
-        try {
-          const probe = await navigator.mediaDevices.getUserMedia({ video: true });
-          probe.getTracks().forEach((t) => t.stop());
-        } catch {
-          // ignore — we'll still try to enumerate, just without labels
-        }
-        const browserDevices = (await navigator.mediaDevices.enumerateDevices())
-          .filter((d) => d.kind === "videoinput")
-          .map((d) => ({ deviceId: d.deviceId, label: d.label }));
-        const r = await fetchWithHeaders(`${baseUrl}/available-cameras`);
-        if (!r.ok) {
-          if (!cancelled) setAvailableCameras([]);
-          return;
-        }
-        const body = await r.json();
-        const backend: { index: number; name?: string; available: boolean }[] =
-          body.cameras ?? [];
-        const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
-        const used = new Set<string>();
-        const merged: AvailableCamera[] = backend.map((cam) => {
-          const label = cam.name || `Camera ${cam.index}`;
-          const target = norm(label);
-          const candidate =
-            browserDevices.find(
-              (d) => !used.has(d.deviceId) && d.label && norm(d.label) === target,
-            ) ||
-            browserDevices.find(
-              (d) =>
-                !used.has(d.deviceId) &&
-                d.label &&
-                norm(d.label).startsWith(target),
-            ) ||
-            browserDevices.find(
-              (d) =>
-                !used.has(d.deviceId) &&
-                d.label &&
-                (norm(d.label).includes(target) || target.includes(norm(d.label))),
-            );
-          if (candidate) used.add(candidate.deviceId);
-          return {
-            index: cam.index,
-            name: label,
-            deviceId: candidate?.deviceId ?? "",
-            available: cam.available,
-          };
-        });
-        if (!cancelled) setAvailableCameras(merged);
-      } catch {
-        if (!cancelled) setAvailableCameras([]);
-      }
-    };
-    refresh();
-    const handler = () => refresh();
-    navigator.mediaDevices.addEventListener("devicechange", handler);
-    return () => {
-      cancelled = true;
-      navigator.mediaDevices.removeEventListener("devicechange", handler);
-    };
-  }, [open, baseUrl, fetchWithHeaders]);
 
   // Load policy config when step changes.
   useEffect(() => {
@@ -532,7 +425,7 @@ const InferenceModal: React.FC<Props> = ({
                           )}
                         </SelectContent>
                       </Select>
-                      <CameraPreview deviceId={bound?.deviceId ?? ""} paused={submitting} />
+                      <CameraThumbnail deviceId={bound?.deviceId ?? ""} paused={submitting} />
                     </div>
                   );
                 })}

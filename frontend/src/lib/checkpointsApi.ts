@@ -1,4 +1,4 @@
-type Fetcher = (url: string, options?: RequestInit) => Promise<Response>;
+import { Fetcher, apiRequest } from "./apiClient";
 
 export interface JobCheckpoint {
   step: number;
@@ -16,12 +16,14 @@ export async function listJobCheckpoints(
   baseUrl: string,
   fetcher: Fetcher,
   jobId: string,
+  signal?: AbortSignal,
 ): Promise<JobCheckpoint[]> {
-  const r = await fetcher(`${baseUrl}/jobs/${jobId}/checkpoints`);
-  if (!r.ok) {
-    throw new Error(`List checkpoints failed: ${r.status}`);
-  }
-  const body = await r.json();
+  const body = await apiRequest<{ checkpoints: JobCheckpoint[] }>(
+    baseUrl,
+    fetcher,
+    `/jobs/${jobId}/checkpoints`,
+    { signal, action: "List checkpoints" },
+  );
   return body.checkpoints;
 }
 
@@ -30,12 +32,12 @@ export async function getCheckpointPolicyConfig(
   fetcher: Fetcher,
   jobId: string,
   step: number,
+  signal?: AbortSignal,
 ): Promise<PolicyConfigSummary> {
-  const r = await fetcher(
-    `${baseUrl}/jobs/${jobId}/checkpoints/${step}/policy-config`,
+  return apiRequest<PolicyConfigSummary>(
+    baseUrl,
+    fetcher,
+    `/jobs/${jobId}/checkpoints/${step}/policy-config`,
+    { signal, action: "Load policy config" },
   );
-  if (!r.ok) {
-    throw new Error(`Load policy config failed: ${r.status}`);
-  }
-  return r.json();
 }

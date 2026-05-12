@@ -46,7 +46,7 @@ export const loadMeshFile = (
       new GLTFLoader(manager).load(
         path,
         (result) => done(result.scene),
-        null,
+        undefined,
         (err) => done(null, err as Error)
       );
       break;
@@ -54,7 +54,7 @@ export const loadMeshFile = (
       new OBJLoader(manager).load(
         path,
         (result) => done(result),
-        null,
+        () => {},
         (err) => done(null, err as Error)
       );
       break;
@@ -62,7 +62,7 @@ export const loadMeshFile = (
       new ColladaLoader(manager).load(
         path,
         (result) => done(result.scene),
-        null,
+        undefined,
         (err) => done(null, err as Error)
       );
       break;

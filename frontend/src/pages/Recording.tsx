@@ -93,7 +93,11 @@ const Recording = () => {
   const [showStopConfirm, setShowStopConfirm] = useState(false);
   const [muted, setMutedState] = useState<boolean>(() => getMuted());
   const prevRealPhaseRef = useRef<Phase | null>(null);
-  const warningFiredForPhaseRef = useRef<{ phase: Phase | null; episode: number | null }>({ phase: null, episode: null });
+  // Bumps on each re-record so the auto-advance warning re-fires for the same episode number.
+  const [rerecordTick, setRerecordTick] = useState(0);
+  const warningFiredForPhaseRef = useRef<{ phase: Phase | null; episode: number | null; tick: number }>({ phase: null, episode: null, tick: 0 });
+  // Guards against React StrictMode double-invocation of the start effect.
+  const startInitiatedRef = useRef(false);
 
   const toggleMute = useCallback(() => {
     setMutedState((prev) => {
@@ -115,97 +119,93 @@ const Recording = () => {
     }
   }, [recordingConfig, navigate, toast]);
 
-  // Start recording session when component loads
+  // Start recording session when component loads. The ref guard prevents
+  // React StrictMode (and any future re-renders) from firing /start-recording
+  // twice — the second call returns 409 and bounces the user home.
   useEffect(() => {
-    if (recordingConfig && !recordingSessionStarted) {
+    if (recordingConfig && !startInitiatedRef.current) {
+      startInitiatedRef.current = true;
       startRecordingSession();
     }
-  }, [recordingConfig, recordingSessionStarted]);
+    // startRecordingSession is intentionally omitted: re-running this effect
+    // on its identity change would re-fire /start-recording.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recordingConfig]);
+
+  // Refs so the poll interval below stays stable and reads the latest values
+  // without tearing itself down on every state change.
+  const optimisticPhaseRef = useRef(optimisticPhase);
+  optimisticPhaseRef.current = optimisticPhase;
+  const rerecordTickRef = useRef(rerecordTick);
+  rerecordTickRef.current = rerecordTick;
 
   // Poll backend status continuously to stay in sync
   useEffect(() => {
-    let statusInterval: NodeJS.Timeout;
+    if (!recordingSessionStarted) return;
 
-    if (recordingSessionStarted) {
-      const pollStatus = async () => {
-        try {
-          const response = await fetchWithHeaders(
-            `${baseUrl}/recording-status`
-          );
-          if (response.ok) {
-            const status = await response.json();
-            setBackendStatus(status);
+    const pollStatus = async () => {
+      try {
+        const response = await fetchWithHeaders(
+          `${baseUrl}/recording-status`
+        );
+        if (!response.ok) return;
+        const status = await response.json();
+        setBackendStatus(status);
 
-            if (optimisticPhase && status.current_phase === optimisticPhase) {
-              setOptimisticPhase(null);
-            }
-
-            const real = status.current_phase as Phase;
-            const prev = prevRealPhaseRef.current;
-            if (prev !== real) {
-              if (real === "recording" && prev !== null) {
-                playRecordingStartCue();
-              } else if (real === "resetting") {
-                playResetStartCue();
-              }
-              prevRealPhaseRef.current = real;
-              warningFiredForPhaseRef.current = { phase: null, episode: null };
-            }
-
-            const elapsed = status.phase_elapsed_seconds || 0;
-            const limit = status.phase_time_limit_s || 0;
-            const inFinalThreeSeconds = limit > 3 && elapsed >= limit - 3;
-            const ep = status.current_episode ?? null;
-            const warned = warningFiredForPhaseRef.current;
-            if (
-              inFinalThreeSeconds &&
-              optimisticPhase === null &&
-              (warned.phase !== real || warned.episode !== ep)
-            ) {
-              playAutoAdvanceWarning();
-              warningFiredForPhaseRef.current = { phase: real, episode: ep };
-            }
-
-            // If backend recording stopped and session ended, navigate to upload
-            if (
-              !status.recording_active &&
-              status.session_ended &&
-              recordingSessionStarted
-            ) {
-              // Navigate to upload window with dataset info
-              const datasetInfo = {
-                dataset_repo_id:
-                  status.dataset_repo_id || recordingConfig.dataset_repo_id,
-                single_task: recordingConfig.single_task,
-                num_episodes: recordingConfig.num_episodes,
-                saved_episodes: status.saved_episodes || 0,
-                session_elapsed_seconds: status.session_elapsed_seconds || 0,
-              };
-
-              navigate("/upload", { state: { datasetInfo } });
-              return; // Stop polling after navigation
-            }
-          }
-        } catch (error) {
-          console.error("Error polling recording status:", error);
+        const currentOptimistic = optimisticPhaseRef.current;
+        if (currentOptimistic && status.current_phase === currentOptimistic) {
+          setOptimisticPhase(null);
         }
-      };
 
-      // Poll immediately and then every second for real-time updates
-      pollStatus();
-      statusInterval = setInterval(pollStatus, 1000);
-    }
+        const real = status.current_phase as Phase;
+        const prev = prevRealPhaseRef.current;
+        if (prev !== real) {
+          if (real === "recording" && prev !== null) {
+            playRecordingStartCue();
+          } else if (real === "resetting") {
+            playResetStartCue();
+          }
+          prevRealPhaseRef.current = real;
+          warningFiredForPhaseRef.current = { phase: null, episode: null, tick: 0 };
+        }
 
-    return () => {
-      if (statusInterval) clearInterval(statusInterval);
+        const elapsed = status.phase_elapsed_seconds || 0;
+        const limit = status.phase_time_limit_s || 0;
+        const inFinalThreeSeconds = limit > 3 && elapsed >= limit - 3;
+        const ep = status.current_episode ?? null;
+        const tick = rerecordTickRef.current;
+        const warned = warningFiredForPhaseRef.current;
+        if (
+          inFinalThreeSeconds &&
+          currentOptimistic === null &&
+          (warned.phase !== real ||
+            warned.episode !== ep ||
+            warned.tick !== tick)
+        ) {
+          playAutoAdvanceWarning();
+          warningFiredForPhaseRef.current = { phase: real, episode: ep, tick };
+        }
+
+        if (!status.recording_active && status.session_ended) {
+          const datasetInfo = {
+            dataset_repo_id:
+              status.dataset_repo_id || recordingConfig.dataset_repo_id,
+            single_task: recordingConfig.single_task,
+            num_episodes: recordingConfig.num_episodes,
+            saved_episodes: status.saved_episodes || 0,
+            session_elapsed_seconds: status.session_elapsed_seconds || 0,
+          };
+          navigate("/upload", { state: { datasetInfo } });
+        }
+      } catch (error) {
+        console.error("Error polling recording status:", error);
+      }
     };
-  }, [
-    recordingSessionStarted,
-    recordingConfig,
-    navigate,
-    toast,
-    optimisticPhase,
-  ]);
+
+    pollStatus();
+    const statusInterval = setInterval(pollStatus, 1000);
+    return () => clearInterval(statusInterval);
+  }, [recordingSessionStarted, recordingConfig, navigate, baseUrl, fetchWithHeaders]);
 
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
@@ -298,6 +298,7 @@ const Recording = () => {
       const data = await response.json();
 
       if (response.ok) {
+        setRerecordTick((t) => t + 1);
         toast({
           title: "Re-recording Episode",
           description: `Episode ${backendStatus.current_episode} will be re-recorded.`,
@@ -416,9 +417,9 @@ const Recording = () => {
 
   const realPhase = backendStatus.current_phase as Phase;
   const currentPhase: Phase = optimisticPhase ?? realPhase;
-  const currentEpisode = backendStatus.current_episode || 1;
+  const currentEpisode = backendStatus.current_episode ?? 1;
   const totalEpisodes =
-    backendStatus.total_episodes || recordingConfig.num_episodes;
+    backendStatus.total_episodes ?? recordingConfig.num_episodes;
 
   const phaseElapsedTime = optimisticPhase
     ? 0

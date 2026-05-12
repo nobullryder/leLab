@@ -4,6 +4,7 @@ import React, {
   useState,
   useMemo,
   useCallback,
+  memo,
 } from "react";
 import { cn } from "@/lib/utils";
 
@@ -36,8 +37,6 @@ const UrdfViewer: React.FC = () => {
   const { registerUrdfProcessor, alternativeUrdfModels, isDefaultModel } =
     useUrdf();
 
-  // Add state for animation control
-  useState<boolean>(isDefaultModel);
   const cleanupAnimationRef = useRef<(() => void) | null>(null);
   const viewerRef = useRef<URDFViewerElement | null>(null);
   const hasInitializedRef = useRef<boolean>(false);
@@ -302,4 +301,4 @@ const UrdfViewer: React.FC = () => {
   );
 };
 
-export default UrdfViewer;
+export default memo(UrdfViewer);

@@ -248,6 +248,11 @@ const Calibration = () => {
       robot_name: robotName,
     };
 
+    // Optimistically mark as active so the unmount cleanup will fire even if
+    // the user navigates away before the backend reports calibration_active=true.
+    // Reverted below if the start request fails.
+    calibrationActiveRef.current = true;
+
     try {
       const response = await fetchWithHeaders(`${baseUrl}/start-calibration`, {
         method: "POST",
@@ -263,6 +268,7 @@ const Calibration = () => {
         });
         setIsPolling(true);
       } else {
+        calibrationActiveRef.current = false;
         toast({
           title: "Calibration Failed",
           description: result.message || "Failed to start calibration",
@@ -270,6 +276,7 @@ const Calibration = () => {
         });
       }
     } catch (error) {
+      calibrationActiveRef.current = false;
       console.error("Error starting calibration:", error);
       toast({
         title: "Error",
@@ -288,13 +295,11 @@ const Calibration = () => {
       const result = await response.json();
 
       if (result.success) {
+        // The 200ms polling interval will pick up the stopped state.
         toast({
           title: "Calibration Stopped",
           description: "Calibration has been stopped",
         });
-        setTimeout(() => {
-          pollStatus();
-        }, 500);
       } else {
         toast({
           title: "Error",
@@ -358,18 +363,17 @@ const Calibration = () => {
   }, [calibrationStatus.status, calibrationStatus.error]);
 
   useEffect(() => {
-    let interval: NodeJS.Timeout;
-
-    if (isPolling) {
-      const pollInterval = calibrationStatus.calibration_active ? 100 : 200;
-      interval = setInterval(pollStatus, pollInterval);
+    if (!isPolling) return;
+    // Single stable interval. Reads calibration_active from the ref each tick so
+    // the interval doesn't tear down/recreate on every status change.
+    pollStatus();
+    const interval = setInterval(() => {
       pollStatus();
-    }
-
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [isPolling, calibrationStatus.calibration_active]);
+    }, 200);
+    return () => clearInterval(interval);
+    // pollStatus is stable enough — it only reads via fetchWithHeaders + setState.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPolling]);
 
   // Load default port when device type changes (skip when arriving from a tile —
   // the robot-record prefill above wins)
@@ -396,7 +400,7 @@ const Calibration = () => {
     };
 
     loadDefaultPort();
-  }, [deviceType, robotName]);
+  }, [deviceType, robotName, baseUrl, fetchWithHeaders]);
 
   const handleDeviceTypeChange = (next: string) => {
     setDeviceType(next);

@@ -2,21 +2,20 @@ import React, {
   createContext,
   useState,
   useCallback,
+  useMemo,
   ReactNode,
   useRef,
   useEffect,
 } from "react";
 import { toast } from "sonner";
 import { UrdfProcessor, readUrdfFileContent } from "@/lib/UrdfDragAndDrop";
-import { UrdfData, UrdfFileModel } from "@/lib/types";
-import { useDefaultRobotData } from "@/hooks/useDefaultRobotData";
+import { UrdfFileModel } from "@/lib/types";
 import { RobotAnimationConfig } from "@/lib/types";
 
 // Define the result interface for Urdf detection
 interface UrdfDetectionResult {
   hasUrdf: boolean;
   modelName?: string;
-  parsedData?: UrdfData | null;
 }
 
 // Define the context type
@@ -37,14 +36,11 @@ export type UrdfContextType = {
   urdfModelOptions: UrdfFileModel[];
   selectUrdfModel: (model: UrdfFileModel) => void;
 
-  // Centralized robot data management
-  currentRobotData: UrdfData | null;
   isDefaultModel: boolean;
   setIsDefaultModel: (isDefault: boolean) => void;
   resetToDefaultModel: () => void;
   urdfContent: string | null;
 
-  // Animation configuration management
   currentAnimationConfig: RobotAnimationConfig | null;
   setCurrentAnimationConfig: (config: RobotAnimationConfig | null) => void;
 };
@@ -77,74 +73,41 @@ export const UrdfProvider: React.FC<UrdfProviderProps> = ({ children }) => {
   const [isSelectionModalOpen, setIsSelectionModalOpen] = useState(false);
   const [urdfModelOptions, setUrdfModelOptions] = useState<UrdfFileModel[]>([]);
 
-  // New state for centralized robot data management
   const [isDefaultModel, setIsDefaultModel] = useState(true);
-  const [parsedRobotData, setParsedRobotData] = useState<UrdfData | null>(null);
   const [urdfContent, setUrdfContent] = useState<string | null>(null);
 
-  // New state for animation configuration
   const [currentAnimationConfig, setCurrentAnimationConfig] =
     useState<RobotAnimationConfig | null>(null);
 
-  // Get default robot data from our hook
-  const { data: defaultRobotData } = useDefaultRobotData("so101");
-
-  // Compute the current robot data based on model state
-  const currentRobotData = isDefaultModel ? defaultRobotData : parsedRobotData;
-
-  // Fetch the default Urdf content when the component mounts
   useEffect(() => {
-    // Only fetch if we don't have content and we're using the default model
-    if (isDefaultModel && !urdfContent) {
-      const fetchDefaultUrdf = async () => {
-        try {
-          // Path to the default T12 Urdf file
-          const defaultUrdfPath = "/so-101-urdf/urdf/so101_new_calib.urdf";
-
-          // Fetch the Urdf content
-          const response = await fetch(defaultUrdfPath);
-
-          if (!response.ok) {
-            throw new Error(
-              `Failed to fetch default Urdf: ${response.statusText}`
-            );
-          }
-
-          const defaultUrdfContent = await response.text();
-          console.log(
-            `📄 Default Urdf content loaded, length: ${defaultUrdfContent.length} characters`
-          );
-
-          // Set the Urdf content in state
-          setUrdfContent(defaultUrdfContent);
-        } catch (error) {
-          console.error("❌ Error loading default Urdf content:", error);
+    if (!isDefaultModel || urdfContent) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch("/so-101-urdf/urdf/so101_new_calib.urdf");
+        if (!response.ok) {
+          throw new Error(`Failed to fetch default Urdf: ${response.statusText}`);
         }
-      };
-
-      fetchDefaultUrdf();
-    }
+        const content = await response.text();
+        if (!cancelled) setUrdfContent(content);
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Error loading default Urdf content:", error);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [isDefaultModel, urdfContent]);
-
-  // Log data state changes for debugging
-  useEffect(() => {
-    console.log("🤖 Robot data context updated:", {
-      isDefaultModel,
-      hasDefaultData: !!defaultRobotData,
-      hasParsedData: !!parsedRobotData,
-      currentData: currentRobotData ? "available" : "null",
-    });
-  }, [isDefaultModel, defaultRobotData, parsedRobotData, currentRobotData]);
 
   // Reference for callbacks
   const urdfCallbacksRef = useRef<((result: UrdfDetectionResult) => void)[]>(
     []
   );
 
-  // Reset to default model
   const resetToDefaultModel = useCallback(() => {
     setIsDefaultModel(true);
-    setParsedRobotData(null);
     setUrdfContent(null);
     setCurrentAnimationConfig(null);
 
@@ -172,47 +135,13 @@ export const UrdfProvider: React.FC<UrdfProviderProps> = ({ children }) => {
     setUrdfProcessor(processor);
   }, []);
 
-  // Internal function to notify callbacks and update central state
   const notifyUrdfCallbacks = useCallback(
     (result: UrdfDetectionResult) => {
-      console.log("📣 Notifying Urdf callbacks with result:", result);
-
-      // Update our internal state based on the result
       if (result.hasUrdf) {
-        // Always ensure we set isDefaultModel to false when we have a Urdf
         setIsDefaultModel(false);
-
-        if (result.parsedData) {
-          // Create a copy of the parsed data with any missing fields filled in
-          const enhancedParsedData: UrdfData = {
-            ...result.parsedData,
-          };
-
-          if (!result.parsedData.name && result.modelName) {
-            enhancedParsedData.name = result.modelName;
-          }
-
-          if (!result.parsedData.description) {
-            enhancedParsedData.description =
-              "A detailed 3D model of a robotic system with articulated joints and components.";
-          }
-
-          setParsedRobotData(enhancedParsedData);
-        } else if (result.modelName) {
-          // Only have model name, no parsed data — create a minimal UrdfData
-          const minimalData: UrdfData = {
-            name: result.modelName,
-            description:
-              "A detailed 3D model of a robotic system with articulated joints and components.",
-          };
-          setParsedRobotData(minimalData);
-        }
       } else {
-        // If no Urdf, reset to default
         resetToDefaultModel();
       }
-
-      // Call all registered callbacks
       urdfCallbacksRef.current.forEach((callback) => callback(result));
     },
     [resetToDefaultModel]
@@ -263,45 +192,25 @@ export const UrdfProvider: React.FC<UrdfProviderProps> = ({ children }) => {
           }
         );
 
-        // Read the Urdf content
         const urdfContent = await readUrdfFileContent(file);
 
-        console.log(
-          `📏 Urdf content read, length: ${urdfContent.length} characters`
-        );
-
-        // Store the Urdf content in state
         setUrdfContent(urdfContent);
 
-        // Dismiss the toast
         toast.dismiss(loadingToast);
 
-        // Always set isDefaultModel to false when processing a custom Urdf
         setIsDefaultModel(false);
 
-        // Success case - create basic model data
         const modelDisplayName =
           model.name || model.path.split("/").pop() || "Unknown";
-
-        // Create basic data structure with name and description
-        const basicData: UrdfData = {
-          name: modelDisplayName,
-          description:
-            "A detailed 3D model of a robotic system with articulated joints and components.",
-        };
-
-        setParsedRobotData(basicData);
 
         toast.success("Urdf model loaded successfully", {
           description: `Model: ${modelDisplayName}`,
           duration: 3000,
         });
 
-        // Notify callbacks with the basic data
         notifyUrdfCallbacks({
           hasUrdf: true,
           modelName: modelDisplayName,
-          parsedData: basicData,
         });
       } catch (error) {
         // Error case
@@ -329,12 +238,8 @@ export const UrdfProvider: React.FC<UrdfProviderProps> = ({ children }) => {
         return;
       }
 
-      console.log(`🤖 Selected model: ${model.name || model.path}`);
-
-      // Close the modal
       setIsSelectionModalOpen(false);
 
-      // Extract model name
       const modelName =
         model.name ||
         model.path
@@ -343,49 +248,34 @@ export const UrdfProvider: React.FC<UrdfProviderProps> = ({ children }) => {
           ?.replace(/\.urdf$/i, "") ||
         "Unknown";
 
-      // Load the selected Urdf model
       urdfProcessor.loadUrdf(model.blobUrl);
 
-      // Update our state immediately even before parsing
       setIsDefaultModel(false);
 
-      // Show a toast notification that we're loading the model
       toast.info(`Loading model: ${modelName}`, {
         description: "Preparing 3D visualization",
         duration: 2000,
       });
 
-      // Notify callbacks about the selection before parsing
       notifyUrdfCallbacks({
         hasUrdf: true,
         modelName,
-        parsedData: undefined, // Will use parseUrdf later to get the data
       });
 
-      // Try to parse the model - this will update the UI when complete
       processSelectedUrdf(model);
     },
     [urdfProcessor, notifyUrdfCallbacks, processSelectedUrdf]
   );
 
-  // Process Urdf files - moved from DragAndDropContext
   const processUrdfFiles = useCallback(
     async (files: Record<string, File>, availableModels: string[]) => {
-      // Clear previous blob URLs to prevent memory leaks
       Object.values(urdfBlobUrls).forEach(URL.revokeObjectURL);
       setUrdfBlobUrls({});
       setAlternativeUrdfModels([]);
       setUrdfModelOptions([]);
 
       try {
-        // Check if we have any Urdf files
         if (availableModels.length > 0 && urdfProcessor) {
-          console.log(
-            `🤖 Found ${availableModels.length} Urdf models:`,
-            availableModels
-          );
-
-          // Create blob URLs for all models
           const newUrdfBlobUrls: Record<string, string> = {};
           availableModels.forEach((path) => {
             if (files[path]) {
@@ -394,10 +284,8 @@ export const UrdfProvider: React.FC<UrdfProviderProps> = ({ children }) => {
           });
           setUrdfBlobUrls(newUrdfBlobUrls);
 
-          // Save alternative models for reference
           setAlternativeUrdfModels(availableModels);
 
-          // Create model options for the selection modal
           const modelOptions: UrdfFileModel[] = availableModels.map((path) => {
             const fileName = path.split("/").pop() || "";
             const modelName = fileName.replace(/\.urdf$/i, "");
@@ -410,27 +298,17 @@ export const UrdfProvider: React.FC<UrdfProviderProps> = ({ children }) => {
 
           setUrdfModelOptions(modelOptions);
 
-          // If there's only one model, use it directly
           if (availableModels.length === 1) {
-            // Extract model name from the Urdf file
             const fileName = availableModels[0].split("/").pop() || "";
             const modelName = fileName.replace(/\.urdf$/i, "");
-            console.log(`📄 Using model: ${modelName} (${fileName})`);
 
-            // Use the blob URL instead of the file path
             const blobUrl = newUrdfBlobUrls[availableModels[0]];
             if (blobUrl) {
-              console.log(`🔗 Using blob URL for Urdf: ${blobUrl}`);
               urdfProcessor.loadUrdf(blobUrl);
 
-              // Immediately update model state
               setIsDefaultModel(false);
 
-              // Process the Urdf file for content storage
               if (files[availableModels[0]]) {
-                console.log("📄 Reading Urdf content...");
-
-                // Show a toast notification that we're loading the Urdf
                 const loadingToast = toast.loading("Loading Urdf model...", {
                   description: "Preparing 3D visualization",
                   duration: 5000,
@@ -441,14 +319,8 @@ export const UrdfProvider: React.FC<UrdfProviderProps> = ({ children }) => {
                     files[availableModels[0]]
                   );
 
-                  console.log(
-                    `📏 Urdf content read, length: ${urdfContent.length} characters`
-                  );
-
-                  // Store the Urdf content in state
                   setUrdfContent(urdfContent);
 
-                  // Dismiss the loading toast
                   toast.dismiss(loadingToast);
 
                   toast.success("Urdf model loaded successfully", {
@@ -456,23 +328,12 @@ export const UrdfProvider: React.FC<UrdfProviderProps> = ({ children }) => {
                     duration: 3000,
                   });
 
-                  // Create basic data structure with name and description
-                  const basicData: UrdfData = {
-                    name: modelName,
-                    description:
-                      "A detailed 3D model of a robotic system with articulated joints and components.",
-                  };
-
-                  setParsedRobotData(basicData);
-
-                  // Notify callbacks with all the information
                   notifyUrdfCallbacks({
                     hasUrdf: true,
-                    modelName: modelName,
-                    parsedData: basicData,
+                    modelName,
                   });
                 } catch (loadError) {
-                  console.error("❌ Error loading Urdf:", loadError);
+                  console.error("Error loading Urdf:", loadError);
                   toast.dismiss(loadingToast);
                   toast.error("Error loading Urdf", {
                     description: `Error: ${
@@ -491,12 +352,10 @@ export const UrdfProvider: React.FC<UrdfProviderProps> = ({ children }) => {
                 }
               } else {
                 console.error(
-                  "❌ Could not find file for Urdf model:",
+                  "Could not find file for Urdf model:",
                   availableModels[0]
                 );
-                console.log("📦 Available files:", Object.keys(files));
 
-                // Still notify callbacks without detailed data
                 notifyUrdfCallbacks({
                   hasUrdf: true,
                   modelName,
@@ -504,39 +363,28 @@ export const UrdfProvider: React.FC<UrdfProviderProps> = ({ children }) => {
               }
             } else {
               console.warn(
-                `⚠️ No blob URL found for ${availableModels[0]}, using path directly`
+                `No blob URL found for ${availableModels[0]}, using path directly`
               );
               urdfProcessor.loadUrdf(availableModels[0]);
 
-              // Update the state even without a blob URL
               setIsDefaultModel(false);
 
-              // Notify callbacks
               notifyUrdfCallbacks({
                 hasUrdf: true,
                 modelName,
               });
             }
           } else {
-            // Multiple Urdf files found, show selection modal
-            console.log(
-              "📋 Multiple Urdf files found, showing selection modal"
-            );
             setIsSelectionModalOpen(true);
 
-            // Notify that Urdf files are available but selection is needed
             notifyUrdfCallbacks({
               hasUrdf: true,
               modelName: "Multiple models available",
             });
           }
         } else {
-          console.warn(
-            "❌ No Urdf models found in dropped files or no processor available"
-          );
-          notifyUrdfCallbacks({ hasUrdf: false, parsedData: null });
+          notifyUrdfCallbacks({ hasUrdf: false });
 
-          // Reset to default model when no Urdf files are found
           resetToDefaultModel();
 
           toast.error("No Urdf file found", {
@@ -545,7 +393,7 @@ export const UrdfProvider: React.FC<UrdfProviderProps> = ({ children }) => {
           });
         }
       } catch (error) {
-        console.error("❌ Error processing Urdf files:", error);
+        console.error("Error processing Urdf files:", error);
         toast.error("Error processing files", {
           description: `Error: ${
             error instanceof Error ? error.message : String(error)
@@ -553,44 +401,59 @@ export const UrdfProvider: React.FC<UrdfProviderProps> = ({ children }) => {
           duration: 3000,
         });
 
-        // Reset to default model on error
         resetToDefaultModel();
       }
     },
     [notifyUrdfCallbacks, urdfBlobUrls, urdfProcessor, resetToDefaultModel]
   );
 
-  // Clean up blob URLs when component unmounts
-  React.useEffect(() => {
+  // Revoke blob URLs only on unmount; ref tracks the latest set so we
+  // don't re-revoke on every state change.
+  const blobUrlsRef = useRef(urdfBlobUrls);
+  blobUrlsRef.current = urdfBlobUrls;
+  useEffect(() => {
     return () => {
-      Object.values(urdfBlobUrls).forEach(URL.revokeObjectURL);
+      Object.values(blobUrlsRef.current).forEach(URL.revokeObjectURL);
     };
-  }, [urdfBlobUrls]);
+  }, []);
 
-  // Create the context value
-  const contextValue: UrdfContextType = {
-    urdfProcessor,
-    registerUrdfProcessor,
-    onUrdfDetected,
-    processUrdfFiles,
-    urdfBlobUrls,
-    alternativeUrdfModels,
-    isSelectionModalOpen,
-    setIsSelectionModalOpen,
-    urdfModelOptions,
-    selectUrdfModel,
+  const contextValue = useMemo<UrdfContextType>(
+    () => ({
+      urdfProcessor,
+      registerUrdfProcessor,
+      onUrdfDetected,
+      processUrdfFiles,
+      urdfBlobUrls,
+      alternativeUrdfModels,
+      isSelectionModalOpen,
+      setIsSelectionModalOpen,
+      urdfModelOptions,
+      selectUrdfModel,
 
-    // New properties for centralized robot data management
-    currentRobotData,
-    isDefaultModel,
-    setIsDefaultModel,
-    resetToDefaultModel,
-    urdfContent,
+      isDefaultModel,
+      setIsDefaultModel,
+      resetToDefaultModel,
+      urdfContent,
 
-    // Animation configuration management
-    currentAnimationConfig,
-    setCurrentAnimationConfig,
-  };
+      currentAnimationConfig,
+      setCurrentAnimationConfig,
+    }),
+    [
+      urdfProcessor,
+      registerUrdfProcessor,
+      onUrdfDetected,
+      processUrdfFiles,
+      urdfBlobUrls,
+      alternativeUrdfModels,
+      isSelectionModalOpen,
+      urdfModelOptions,
+      selectUrdfModel,
+      isDefaultModel,
+      resetToDefaultModel,
+      urdfContent,
+      currentAnimationConfig,
+    ]
+  );
 
   return (
     <UrdfContext.Provider value={contextValue}>{children}</UrdfContext.Provider>

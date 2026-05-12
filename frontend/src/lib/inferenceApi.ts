@@ -1,4 +1,4 @@
-type Fetcher = (url: string, options?: RequestInit) => Promise<Response>;
+import { Fetcher, apiRequest } from "./apiClient";
 
 export interface StartInferenceRequest {
   follower_port: string;
@@ -28,48 +28,36 @@ export interface InferenceStatus {
   exit_code?: number | null;
 }
 
-async function expectOk(r: Response, action: string): Promise<Response> {
-  if (!r.ok) {
-    let detail = `${r.status}`;
-    try {
-      const body = await r.json();
-      detail = body.detail || detail;
-    } catch {
-      // ignore
-    }
-    throw new Error(`${action} failed: ${detail}`);
-  }
-  return r;
-}
-
 export async function startInference(
   baseUrl: string,
   fetcher: Fetcher,
   request: StartInferenceRequest,
 ): Promise<{ message: string; log_path: string }> {
-  const r = await fetcher(`${baseUrl}/start-inference`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(request),
-  });
-  await expectOk(r, "Start inference");
-  return r.json();
+  return apiRequest<{ message: string; log_path: string }>(
+    baseUrl,
+    fetcher,
+    "/start-inference",
+    { method: "POST", body: request, action: "Start inference" },
+  );
 }
 
 export async function stopInference(
   baseUrl: string,
   fetcher: Fetcher,
 ): Promise<{ message: string }> {
-  const r = await fetcher(`${baseUrl}/stop-inference`, { method: "POST" });
-  await expectOk(r, "Stop inference");
-  return r.json();
+  return apiRequest<{ message: string }>(baseUrl, fetcher, "/stop-inference", {
+    method: "POST",
+    action: "Stop inference",
+  });
 }
 
 export async function getInferenceStatus(
   baseUrl: string,
   fetcher: Fetcher,
+  signal?: AbortSignal,
 ): Promise<InferenceStatus> {
-  const r = await fetcher(`${baseUrl}/inference-status`);
-  await expectOk(r, "Get inference status");
-  return r.json();
+  return apiRequest<InferenceStatus>(baseUrl, fetcher, "/inference-status", {
+    signal,
+    action: "Get inference status",
+  });
 }

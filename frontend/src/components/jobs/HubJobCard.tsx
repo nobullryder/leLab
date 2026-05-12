@@ -27,10 +27,14 @@ function relativeTime(iso: string | null): string {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
-const stagePresentation: Record<
-  string,
-  { label: string; color: string; Icon: React.ComponentType<{ className?: string }>; spin?: boolean }
-> = {
+interface StagePresentation {
+  label: string;
+  color: string;
+  Icon: React.ComponentType<{ className?: string }>;
+  spin?: boolean;
+}
+
+const stagePresentation: Record<string, StagePresentation> = {
   RUNNING: { label: "Running", color: "text-green-400", Icon: Loader2, spin: true },
   QUEUED: { label: "Queued", color: "text-amber-400", Icon: Clock },
   SCHEDULING: { label: "Scheduling", color: "text-amber-400", Icon: Clock },
@@ -43,7 +47,7 @@ const stagePresentation: Record<
 
 const HubJobCard: React.FC<Props> = ({ job }) => {
   const stage = job.status?.stage?.toUpperCase() ?? "";
-  const present = stagePresentation[stage] ?? {
+  const present: StagePresentation = stagePresentation[stage] ?? {
     label: stage || "Unknown",
     color: "text-slate-400",
     Icon: HelpCircle,

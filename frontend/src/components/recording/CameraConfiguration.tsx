@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
@@ -11,8 +11,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { NumberInput } from "@/components/ui/number-input";
 import { Camera, Plus, X, VideoOff } from "lucide-react";
-import { useApi } from "@/contexts/ApiContext";
 import { useToast } from "@/hooks/use-toast";
+import { useAvailableCameras } from "@/hooks/useAvailableCameras";
+import { useCameraStream } from "@/hooks/useCameraStream";
 
 export interface CameraConfig {
   id: string;
@@ -31,150 +32,43 @@ interface CameraConfigurationProps {
   releaseStreamsRef?: React.MutableRefObject<(() => void) | null>; // Ref to expose stream release function
 }
 
-interface AvailableCamera {
-  index: number;
-  deviceId: string;
-  name: string;
-  available: boolean;
-}
-
 const CameraConfiguration: React.FC<CameraConfigurationProps> = ({
   cameras,
   onCamerasChange,
   releaseStreamsRef,
 }) => {
-  const { baseUrl, fetchWithHeaders } = useApi();
   const { toast } = useToast();
 
-  const [availableCameras, setAvailableCameras] = useState<AvailableCamera[]>(
-    []
-  );
+  const {
+    cameras: availableCameras,
+    isLoading: isLoadingCameras,
+  } = useAvailableCameras();
   const [selectedCameraIndex, setSelectedCameraIndex] = useState<string>("");
   const [cameraName, setCameraName] = useState("");
-  const [isLoadingCameras, setIsLoadingCameras] = useState(false);
 
-  // Re-fetch on mount and whenever the OS reports a USB hotplug.
+  // cv2's AVFoundation order is uniqueID-sorted, so plugging/unplugging a
+  // device between sessions shifts indices. The browser device_id stays
+  // stable per-origin, so use it to refresh each seeded camera's
+  // camera_index — otherwise the recorder opens the wrong physical device
+  // and the dropdown's "already added" check guards a stale index.
   useEffect(() => {
-    fetchAvailableCameras();
-    const handler = () => fetchAvailableCameras();
-    navigator.mediaDevices.addEventListener("devicechange", handler);
-    return () =>
-      navigator.mediaDevices.removeEventListener("devicechange", handler);
+    if (availableCameras.length === 0 || cameras.length === 0) return;
+    let changed = false;
+    const refreshed = cameras.map((cam) => {
+      if (!cam.device_id) return cam;
+      const match = availableCameras.find((m) => m.deviceId === cam.device_id);
+      if (match && match.index !== cam.camera_index) {
+        changed = true;
+        return { ...cam, camera_index: match.index };
+      }
+      return cam;
+    });
+    if (changed) onCamerasChange(refreshed);
+    // We deliberately don't depend on `cameras`/`onCamerasChange` to avoid
+    // re-running every keystroke in the camera-name input — re-syncing only
+    // when the available-cameras list itself changes is sufficient.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const fetchAvailableCameras = async () => {
-    setIsLoadingCameras(true);
-    try {
-      // Need a permission grant before enumerateDevices() returns labels.
-      try {
-        const probe = await navigator.mediaDevices.getUserMedia({ video: true });
-        probe.getTracks().forEach((t) => t.stop());
-      } catch (permError) {
-        console.warn("Camera permission denied; labels will be empty", permError);
-      }
-
-      const browserDevices = (await navigator.mediaDevices.enumerateDevices())
-        .filter((d) => d.kind === "videoinput")
-        .map((d) => ({ deviceId: d.deviceId, label: d.label }));
-
-      const response = await fetchWithHeaders(`${baseUrl}/available-cameras`);
-      if (!response.ok) {
-        setAvailableCameras([]);
-        return;
-      }
-      const data = await response.json();
-      const backendCams = (data.cameras || []) as {
-        index: number;
-        name?: string;
-        available: boolean;
-      }[];
-
-      console.log(
-        "📷 Browser cameras:",
-        browserDevices.map((d) => d.label || "(no label)")
-      );
-      console.log(
-        "📷 Backend cameras:",
-        backendCams.map((c) => c.name)
-      );
-
-      // Browser's MediaDeviceInfo.label starts with AVFoundation's
-      // localizedName but Chrome often appends "(vendorId:productId)". Match
-      // by prefix / substring instead of strict equality.
-      const norm = (s: string) =>
-        s.toLowerCase().replace(/\s+/g, " ").trim();
-      const matchLabel = (
-        backendName: string,
-        used: Set<string>
-      ): { deviceId: string; label: string } | undefined => {
-        const target = norm(backendName);
-        if (!target) return undefined;
-        // Prefer exact, then "browser label starts with backend name", then either-contains.
-        const candidates = browserDevices.filter(
-          (d) => !used.has(d.deviceId) && d.label
-        );
-        return (
-          candidates.find((d) => norm(d.label) === target) ||
-          candidates.find((d) => norm(d.label).startsWith(target)) ||
-          candidates.find(
-            (d) => norm(d.label).includes(target) || target.includes(norm(d.label))
-          )
-        );
-      };
-
-      const usedBrowserIds = new Set<string>();
-      const merged: AvailableCamera[] = backendCams.map((cam) => {
-        const label = cam.name || `Camera ${cam.index}`;
-        const matched = matchLabel(label, usedBrowserIds);
-        if (matched) {
-          usedBrowserIds.add(matched.deviceId);
-          console.log(`🔗 "${label}" → browser "${matched.label}"`);
-        } else {
-          console.warn(`⚠️ No browser match for backend camera "${label}"`);
-        }
-        return {
-          index: cam.index,
-          deviceId: matched?.deviceId || "",
-          name: label,
-          available: cam.available,
-        };
-      });
-      setAvailableCameras(merged);
-
-      // cv2's AVFoundation order is uniqueID-sorted, so plugging/unplugging a
-      // device between sessions shifts indices. The browser device_id stays
-      // stable per-origin, so use it to refresh each seeded camera's
-      // camera_index — otherwise the recorder opens the wrong physical device
-      // and the dropdown's "already added" check guards a stale index, letting
-      // the same camera be added twice.
-      if (cameras.length > 0) {
-        let changed = false;
-        const refreshed = cameras.map((cam) => {
-          if (!cam.device_id) return cam;
-          const match = merged.find((m) => m.deviceId === cam.device_id);
-          if (match && match.index !== cam.camera_index) {
-            console.log(
-              `🔄 "${cam.name}" cv2 index ${cam.camera_index} → ${match.index} (device_id stable)`,
-            );
-            changed = true;
-            return { ...cam, camera_index: match.index };
-          }
-          return cam;
-        });
-        if (changed) onCamerasChange(refreshed);
-      }
-    } catch (error) {
-      console.error("Camera enumeration failed:", error);
-      toast({
-        title: "Camera Detection Failed",
-        description: "Could not detect available cameras.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoadingCameras(false);
-    }
-  };
+  }, [availableCameras]);
 
   const addCamera = () => {
     if (!selectedCameraIndex || !cameraName.trim()) {
@@ -394,43 +288,10 @@ const CameraPreview: React.FC<CameraPreviewProps> = ({
   onRemove,
   onUpdate,
 }) => {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [streamError, setStreamError] = useState(false);
-
-  useEffect(() => {
-    if (paused || !camera.device_id) {
-      if (!camera.device_id) setStreamError(true);
-      return;
-    }
-    let cancelled = false;
-    let stream: MediaStream | null = null;
-
-    (async () => {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { deviceId: { exact: camera.device_id } },
-        });
-        if (cancelled) {
-          stream.getTracks().forEach((t) => t.stop());
-          return;
-        }
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play().catch(() => {});
-        }
-        setStreamError(false);
-      } catch (err) {
-        console.warn("Live preview failed for", camera.name, err);
-        setStreamError(true);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-      if (stream) stream.getTracks().forEach((t) => t.stop());
-    };
-  }, [camera.device_id, camera.name, paused]);
-
+  const { videoRef, hasError: streamError } = useCameraStream(
+    camera.device_id,
+    paused
+  );
   const showVideo = !paused && camera.device_id && !streamError;
   return (
     <div className="bg-gray-900 rounded-lg border border-gray-700 overflow-hidden">

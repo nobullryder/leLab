@@ -3,6 +3,7 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useState,
   ReactNode,
 } from "react";
@@ -45,6 +46,12 @@ export const HfAuthProvider: React.FC<{ children: ReactNode }> = ({
       }
     } catch (err) {
       console.warn("HF auth status fetch failed:", err);
+      // Drop to a terminal state so consumers waiting on `status !== "loading"`
+      // don't hang forever when the backend is unreachable.
+      setAuth({
+        status: "unauthenticated",
+        loginCommand: "hf auth login",
+      });
     }
   }, [baseUrl, fetchWithHeaders]);
 
@@ -52,8 +59,13 @@ export const HfAuthProvider: React.FC<{ children: ReactNode }> = ({
     fetchStatus();
   }, [fetchStatus]);
 
+  const value = useMemo(
+    () => ({ auth, refetch: fetchStatus }),
+    [auth, fetchStatus]
+  );
+
   return (
-    <HfAuthContext.Provider value={{ auth, refetch: fetchStatus }}>
+    <HfAuthContext.Provider value={value}>
       {children}
     </HfAuthContext.Provider>
   );

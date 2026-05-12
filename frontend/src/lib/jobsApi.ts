@@ -1,3 +1,5 @@
+import { ApiError, Fetcher, apiRequest } from "./apiClient";
+
 export type JobState = "running" | "done" | "failed" | "interrupted";
 
 export interface TrainingMetrics {
@@ -81,30 +83,18 @@ export interface JobProgressSnapshot {
   checkpoint_count: number;
 }
 
-type Fetcher = (url: string, options?: RequestInit) => Promise<Response>;
-
-async function expectOk(r: Response, action: string): Promise<Response> {
-  if (!r.ok) {
-    let detail = `${r.status}`;
-    try {
-      const body = await r.json();
-      detail = body.detail || detail;
-    } catch {
-      // ignore
-    }
-    throw new Error(`${action} failed: ${detail}`);
-  }
-  return r;
-}
-
 export async function listJobs(
   baseUrl: string,
   fetcher: Fetcher,
   limit = 10,
+  signal?: AbortSignal,
 ): Promise<JobRecord[]> {
-  const r = await fetcher(`${baseUrl}/jobs?limit=${limit}`);
-  await expectOk(r, "List jobs");
-  const body = await r.json();
+  const body = await apiRequest<{ jobs: JobRecord[] }>(
+    baseUrl,
+    fetcher,
+    `/jobs?limit=${limit}`,
+    { signal, action: "List jobs" },
+  );
   return body.jobs;
 }
 
@@ -112,20 +102,26 @@ export async function getJob(
   baseUrl: string,
   fetcher: Fetcher,
   id: string,
+  signal?: AbortSignal,
 ): Promise<JobRecord> {
-  const r = await fetcher(`${baseUrl}/jobs/${id}`);
-  await expectOk(r, "Get job");
-  return r.json();
+  return apiRequest<JobRecord>(baseUrl, fetcher, `/jobs/${id}`, {
+    signal,
+    action: "Get job",
+  });
 }
 
 export async function getJobLogs(
   baseUrl: string,
   fetcher: Fetcher,
   id: string,
+  signal?: AbortSignal,
 ): Promise<LogLine[]> {
-  const r = await fetcher(`${baseUrl}/jobs/${id}/logs`);
-  await expectOk(r, "Get job logs");
-  const body = await r.json();
+  const body = await apiRequest<{ logs: LogLine[] }>(
+    baseUrl,
+    fetcher,
+    `/jobs/${id}/logs`,
+    { signal, action: "Get job logs" },
+  );
   return body.logs;
 }
 
@@ -133,10 +129,14 @@ export async function getJobLogFile(
   baseUrl: string,
   fetcher: Fetcher,
   id: string,
+  signal?: AbortSignal,
 ): Promise<LogLine[]> {
-  const r = await fetcher(`${baseUrl}/jobs/${id}/log-file`);
-  await expectOk(r, "Get job log file");
-  const body = await r.json();
+  const body = await apiRequest<{ logs: LogLine[] }>(
+    baseUrl,
+    fetcher,
+    `/jobs/${id}/log-file`,
+    { signal, action: "Get job log file" },
+  );
   return body.logs;
 }
 
@@ -144,10 +144,14 @@ export async function getJobMetricsHistory(
   baseUrl: string,
   fetcher: Fetcher,
   id: string,
+  signal?: AbortSignal,
 ): Promise<MetricsHistoryPoint[]> {
-  const r = await fetcher(`${baseUrl}/jobs/${id}/metrics-history`);
-  await expectOk(r, "Get job metrics history");
-  const body = await r.json();
+  const body = await apiRequest<{ points: MetricsHistoryPoint[] }>(
+    baseUrl,
+    fetcher,
+    `/jobs/${id}/metrics-history`,
+    { signal, action: "Get job metrics history" },
+  );
   return body.points;
 }
 
@@ -158,16 +162,18 @@ export async function startTrainingJob(
 ): Promise<JobRecord> {
   const { target, ...config } = request;
   const body = target ? { config, target } : config;
-  const r = await fetcher(`${baseUrl}/jobs/training`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (r.status === 409) {
-    throw new Error("Another training is already running. Stop it first.");
+  try {
+    return await apiRequest<JobRecord>(baseUrl, fetcher, "/jobs/training", {
+      method: "POST",
+      body,
+      action: "Start training",
+    });
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 409) {
+      throw new Error("Another training is already running. Stop it first.");
+    }
+    throw e;
   }
-  await expectOk(r, "Start training");
-  return r.json();
 }
 
 export async function stopJob(
@@ -175,9 +181,10 @@ export async function stopJob(
   fetcher: Fetcher,
   id: string,
 ): Promise<JobRecord> {
-  const r = await fetcher(`${baseUrl}/jobs/${id}/stop`, { method: "POST" });
-  await expectOk(r, "Stop job");
-  return r.json();
+  return apiRequest<JobRecord>(baseUrl, fetcher, `/jobs/${id}/stop`, {
+    method: "POST",
+    action: "Stop job",
+  });
 }
 
 export async function deleteJob(
@@ -185,8 +192,10 @@ export async function deleteJob(
   fetcher: Fetcher,
   id: string,
 ): Promise<void> {
-  const r = await fetcher(`${baseUrl}/jobs/${id}`, { method: "DELETE" });
-  await expectOk(r, "Delete job");
+  await apiRequest<void>(baseUrl, fetcher, `/jobs/${id}`, {
+    method: "DELETE",
+    action: "Delete job",
+  });
 }
 
 export interface RunnerFlavor {
@@ -205,15 +214,30 @@ export interface RunnerHardwareResponse {
   flavors: RunnerFlavor[];
 }
 
+const EMPTY_HARDWARE: RunnerHardwareResponse = {
+  authenticated: false,
+  username: null,
+  flavors: [],
+};
+
 export async function listRunnerHardware(
   baseUrl: string,
   fetcher: Fetcher,
+  signal?: AbortSignal,
 ): Promise<RunnerHardwareResponse> {
-  const r = await fetcher(`${baseUrl}/jobs/runners/hardware`);
-  if (!r.ok) {
-    return { authenticated: false, username: null, flavors: [] };
+  // Backend returns 401/403 for unauthenticated users; surface as "no flavors"
+  // rather than throwing so the UI can render the "log in to use cloud" hint.
+  try {
+    return await apiRequest<RunnerHardwareResponse>(
+      baseUrl,
+      fetcher,
+      "/jobs/runners/hardware",
+      { signal, action: "List runner hardware" },
+    );
+  } catch (e) {
+    if (e instanceof ApiError) return EMPTY_HARDWARE;
+    throw e;
   }
-  return r.json();
 }
 
 export interface HubJob {
@@ -239,13 +263,25 @@ export interface HubJobsResponse {
   models: HubModel[];
 }
 
+const EMPTY_HUB: HubJobsResponse = {
+  authenticated: false,
+  jobs: [],
+  models: [],
+};
+
 export async function listHubJobs(
   baseUrl: string,
   fetcher: Fetcher,
+  signal?: AbortSignal,
 ): Promise<HubJobsResponse> {
-  const r = await fetcher(`${baseUrl}/jobs/hub`);
-  if (!r.ok) {
-    return { authenticated: false, jobs: [], models: [] };
+  // Same graceful degradation as listRunnerHardware.
+  try {
+    return await apiRequest<HubJobsResponse>(baseUrl, fetcher, "/jobs/hub", {
+      signal,
+      action: "List hub jobs",
+    });
+  } catch (e) {
+    if (e instanceof ApiError) return EMPTY_HUB;
+    throw e;
   }
-  return r.json();
 }
