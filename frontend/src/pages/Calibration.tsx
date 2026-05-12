@@ -785,14 +785,32 @@ const Calibration = () => {
               )}
 
               {calibrationStatus.status === "error" &&
-                calibrationStatus.error && (
+                calibrationStatus.error &&
+                (calibrationStatus.error.startsWith(
+                  "Motor discontinuity detected"
+                ) ? (
+                  <Alert className="bg-red-900/50 border-red-700 text-red-200">
+                    <XCircle className="h-4 w-4" />
+                    <AlertDescription>
+                      <div className="font-semibold text-base mb-1">
+                        Motor discontinuity detected
+                      </div>
+                      <div>
+                        Make sure to start the calibration with the robot in a
+                        middle position — all joints in the middle of their
+                        ranges. See the calibration demo below for the correct
+                        starting pose.
+                      </div>
+                    </AlertDescription>
+                  </Alert>
+                ) : (
                   <Alert className="bg-red-900/50 border-red-700 text-red-200">
                     <XCircle className="h-4 w-4" />
                     <AlertDescription>
                       <strong>Error:</strong> {calibrationStatus.error}
                     </AlertDescription>
                   </Alert>
-                )}
+                ))}
 
               <div
                 ref={demoVideoRef}
