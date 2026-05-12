@@ -40,6 +40,13 @@ const RobotSelector: React.FC<RobotSelectorProps> = ({
   );
   const canCreate = trimmed.length > 0 && !matchesExisting;
 
+  const createDisabled = !canCreate;
+  const createLabel = matchesExisting
+    ? "Already exists"
+    : trimmed === ""
+      ? "Create new robot…"
+      : `Create "${trimmed}"`;
+
   const reset = () => {
     setQuery("");
     setOpen(false);
@@ -51,7 +58,7 @@ const RobotSelector: React.FC<RobotSelectorProps> = ({
   };
 
   const handleCreate = async () => {
-    if (!trimmed) return;
+    if (!canCreate) return;
     const ok = await onCreateNew(trimmed);
     if (ok) reset();
   };
@@ -93,7 +100,7 @@ const RobotSelector: React.FC<RobotSelectorProps> = ({
             className="text-white"
           />
           <CommandList>
-            {availableNames.length === 0 && !canCreate && (
+            {availableNames.length === 0 && (
               <CommandEmpty className="py-4 text-sm text-gray-400 text-center">
                 No robots yet. Type a name to create one.
               </CommandEmpty>
@@ -118,19 +125,16 @@ const RobotSelector: React.FC<RobotSelectorProps> = ({
                 ))}
               </CommandGroup>
             )}
-            {canCreate && (
-              <CommandGroup heading={availableNames.length > 0 ? "New" : undefined}>
-                <CommandItem
-                  value={`__create__${trimmed}`}
-                  onSelect={handleCreate}
-                  className="text-white aria-selected:bg-gray-700"
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  Create &quot;{trimmed}&quot;
-                </CommandItem>
-              </CommandGroup>
-            )}
           </CommandList>
+          <button
+            type="button"
+            onClick={handleCreate}
+            disabled={createDisabled}
+            className="flex w-full items-center gap-2 border-t border-gray-700 px-3 py-2 text-sm text-white hover:bg-gray-700 disabled:cursor-not-allowed disabled:text-gray-500 disabled:hover:bg-transparent"
+          >
+            <Plus className="h-4 w-4" />
+            {createLabel}
+          </button>
         </Command>
       </PopoverContent>
     </Popover>
