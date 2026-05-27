@@ -42,6 +42,13 @@ logger = logging.getLogger(__name__)
 
 LEROBOT_IMAGE = "huggingface/lerobot-gpu:latest"
 
+# Where the trainer writes checkpoints inside the HF Jobs container. The host
+# path the registry hands us (under ~/.cache/...) doesn't exist on the remote
+# pod, so we ignore it and pin a writable container-local path instead. The
+# wrapper reads --output_dir from the trainer argv and uploads checkpoints from
+# here to the Hub, so the lelab UI never reads this path directly.
+_CONTAINER_OUTPUT_DIR = "/tmp/lelab/train"
+
 # Inlined sidecar uploader for HF Jobs. Spawns the lerobot trainer as a
 # subprocess and concurrently uploads new <output_dir>/checkpoints/<step>/
 # directories to the Hub model repo, so the lelab UI can list them while
@@ -231,6 +238,10 @@ class HfCloudJobRunner:
         self._lines_processed: int = 0
 
     def start(self, job_id: str, config: TrainingRequest, output_dir: str) -> None:
+        # output_dir is the host-local path the registry pins for local jobs;
+        # it doesn't exist on the remote pod, so cloud jobs write to a
+        # container-local path instead (checkpoints reach the UI via the Hub).
+        del output_dir
         if self._hf_job_id is not None:
             raise RuntimeError("HfCloudJobRunner already started")
 
@@ -259,7 +270,7 @@ class HfCloudJobRunner:
         # job_id is already a unique slug like "act_dataset_2026-05-04_10-22-03".
         config.policy_repo_id = f"{username}/{job_id}"
 
-        trainer_argv = build_training_command(config, output_dir)
+        trainer_argv = build_training_command(config, _CONTAINER_OUTPUT_DIR)
         # The wrapper expects `python -c WRAPPER_SOURCE -- <trainer argv>`.
         # `python -c` consumes the first non-option argument as the script,
         # so we prepend a "--" sentinel of our own.
